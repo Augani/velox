@@ -1,7 +1,9 @@
 use std::cell::RefCell;
 use std::rc::Rc;
 
+use crate::batch;
 use crate::subscription::{Subscription, SubscriptionFlag};
+use crate::tracking;
 
 struct SubscriberEntry<T> {
     flag: SubscriptionFlag,
@@ -16,20 +18,30 @@ struct SignalInner<T> {
 
 pub struct Signal<T> {
     inner: Rc<RefCell<SignalInner<T>>>,
+    notify_fn: Rc<dyn Fn()>,
 }
 
-impl<T: Clone> Signal<T> {
+impl<T: Clone + 'static> Signal<T> {
     pub fn new(value: T) -> Self {
-        Self {
-            inner: Rc::new(RefCell::new(SignalInner {
-                value,
-                version: 0,
-                subscribers: Vec::new(),
-            })),
-        }
+        let inner = Rc::new(RefCell::new(SignalInner {
+            value,
+            version: 0,
+            subscribers: Vec::new(),
+        }));
+        let inner_ref = Rc::clone(&inner);
+        let notify_fn: Rc<dyn Fn()> = Rc::new(move || {
+            Self::do_notify(&inner_ref);
+        });
+        Self { inner, notify_fn }
     }
 
     pub fn get(&self) -> T {
+        if tracking::is_tracking() {
+            let signal = self.clone();
+            tracking::track_signal(Box::new(move |invalidate: Box<dyn Fn()>| {
+                signal.subscribe(move |_| invalidate())
+            }));
+        }
         self.inner.borrow().value.clone()
     }
 
@@ -39,7 +51,7 @@ impl<T: Clone> Signal<T> {
             inner.value = value;
             inner.version += 1;
         }
-        self.notify();
+        self.schedule_notify();
     }
 
     pub fn update(&self, f: impl FnOnce(&mut T)) {
@@ -48,7 +60,7 @@ impl<T: Clone> Signal<T> {
             f(&mut inner.value);
             inner.version += 1;
         }
-        self.notify();
+        self.schedule_notify();
     }
 
     pub fn version(&self) -> u64 {
@@ -65,37 +77,42 @@ impl<T: Clone> Signal<T> {
         Subscription::new(flag)
     }
 
-    fn notify(&self) {
+    fn schedule_notify(&self) {
+        if batch::is_batching() {
+            batch::enqueue_notify(Rc::clone(&self.notify_fn));
+        } else {
+            Self::do_notify(&self.inner);
+        }
+    }
+
+    fn do_notify(inner: &Rc<RefCell<SignalInner<T>>>) {
         let to_notify: Vec<(SubscriptionFlag, Rc<dyn Fn(&T)>)> = {
-            let inner = self.inner.borrow();
-            inner
+            let borrowed = inner.borrow();
+            borrowed
                 .subscribers
                 .iter()
                 .filter(|e| e.flag.is_active())
                 .map(|e| (e.flag.clone(), e.callback.clone()))
                 .collect()
         };
-        let value = self.get();
+        let value = inner.borrow().value.clone();
         for (flag, callback) in &to_notify {
             if flag.is_active() {
                 callback(&value);
             }
         }
-        self.cleanup_dead_subscribers();
-    }
-
-    fn cleanup_dead_subscribers(&self) {
-        self.inner
+        inner
             .borrow_mut()
             .subscribers
             .retain(|e| e.flag.is_active());
     }
 }
 
-impl<T: Clone> Clone for Signal<T> {
+impl<T: Clone + 'static> Clone for Signal<T> {
     fn clone(&self) -> Self {
         Self {
             inner: Rc::clone(&self.inner),
+            notify_fn: Rc::clone(&self.notify_fn),
         }
     }
 }
