@@ -8,3 +8,7 @@ rfd = { workspace = true }
 notify-rust = { workspace = true }
 tray-icon = { workspace = true }
 muda = { workspace = true }
+accesskit = { workspace = true }
+accesskit_winit = { workspace = true }
+velox-scene = { workspace = true }
+slotmap = { workspace = true }

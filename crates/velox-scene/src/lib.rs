@@ -34,6 +34,8 @@ pub use shortcut::{Key, KeyCombo, Modifiers, ShortcutId, ShortcutRegistry};
 
 mod event;
 mod event_handler;
+mod ime;
 
 pub use event::{ButtonState, KeyEvent, KeyState, MouseButton, MouseEvent, ScrollEvent};
 pub use event_handler::{EventContext, EventHandler};
+pub use ime::ImeEvent;

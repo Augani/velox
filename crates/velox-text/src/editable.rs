@@ -1,5 +1,6 @@
 use crate::attrs::TextAttrs;
 use crate::buffer::TextBuffer;
+use crate::composition::CompositionState;
 use crate::font_system::FontSystem;
 use crate::selection::TextSelection;
 use crate::undo::{EditCommand, UndoStack};
@@ -28,6 +29,7 @@ pub struct EditableText {
     selection: TextSelection,
     undo_stack: UndoStack,
     attrs: TextAttrs,
+    composition: CompositionState,
     #[allow(dead_code)]
     multiline: bool,
 }
@@ -45,6 +47,7 @@ impl EditableText {
             selection: TextSelection::default(),
             undo_stack: UndoStack::new(),
             attrs: TextAttrs::default(),
+            composition: CompositionState::default(),
             multiline,
         }
     }
@@ -325,6 +328,20 @@ impl EditableText {
 
     pub fn buffer(&self) -> &TextBuffer {
         &self.buffer
+    }
+
+    pub fn composition(&self) -> &CompositionState {
+        &self.composition
+    }
+
+    pub fn composition_mut(&mut self) -> &mut CompositionState {
+        &mut self.composition
+    }
+
+    pub fn commit_composition(&mut self, font_system: &mut FontSystem) {
+        if let Some(text) = self.composition.commit() {
+            self.insert_text(font_system, &text);
+        }
     }
 
     fn delete_selection_inner(&mut self, _font_system: &mut FontSystem) {

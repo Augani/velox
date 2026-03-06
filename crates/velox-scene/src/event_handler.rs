@@ -60,6 +60,11 @@ pub trait EventHandler: 'static {
         false
     }
 
+    fn handle_ime(&mut self, event: &crate::ime::ImeEvent, ctx: &mut EventContext) -> bool {
+        let _ = (event, ctx);
+        false
+    }
+
     fn handle_focus(&mut self, gained: bool) {
         let _ = gained;
     }

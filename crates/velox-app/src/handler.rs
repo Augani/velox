@@ -386,6 +386,31 @@ impl ApplicationHandler for VeloxHandler {
                     }
                 }
             }
+            WindowEvent::Ime(ime) => {
+                let Some(ws) = self.windows.get_mut(&velox_id) else {
+                    return;
+                };
+                let Some(focused) = ws.scene.focus().focused() else {
+                    return;
+                };
+                let ime_event = match ime {
+                    winit::event::Ime::Enabled => velox_scene::ImeEvent::Enabled,
+                    winit::event::Ime::Disabled => velox_scene::ImeEvent::Disabled,
+                    winit::event::Ime::Preedit(text, cursor) => velox_scene::ImeEvent::Preedit {
+                        text,
+                        cursor_range: cursor,
+                    },
+                    winit::event::Ime::Commit(text) => velox_scene::ImeEvent::Commit { text },
+                };
+                let result = ws
+                    .scene
+                    .tree_mut()
+                    .dispatch_ime_event_with_context(focused, &ime_event);
+                if result.redraw_requested {
+                    ws.needs_redraw = true;
+                    ws.scene_dirty = true;
+                }
+            }
             _ => {}
         }
     }

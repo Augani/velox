@@ -1,3 +1,4 @@
+pub mod accessibility_bridge;
 pub mod app;
 pub mod clipboard;
 pub mod file_dialog;
@@ -7,6 +8,7 @@ pub mod power;
 mod stub;
 pub mod tray;
 
+pub use accessibility_bridge::AccessibilityBridge;
 pub use app::PlatformApp;
 pub use clipboard::PlatformClipboard;
 pub use file_dialog::{NativeFileDialog, PlatformFileDialog};

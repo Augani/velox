@@ -581,6 +581,38 @@ impl NodeTree {
         }
     }
 
+    pub fn dispatch_ime_event(&mut self, id: NodeId, event: &crate::ime::ImeEvent) -> bool {
+        self.dispatch_ime_event_with_context(id, event).consumed
+    }
+
+    pub fn dispatch_ime_event_with_context(
+        &mut self,
+        id: NodeId,
+        event: &crate::ime::ImeEvent,
+    ) -> EventDispatchResult {
+        let Some(data) = self.nodes.get(id) else {
+            return EventDispatchResult::default();
+        };
+        let rect = data.rect;
+        let handler = self.nodes.get_mut(id).and_then(|d| d.event_handler.take());
+        if let Some(mut h) = handler {
+            let mut ctx = EventContext::new(rect);
+            let consumed = h.handle_ime(event, &mut ctx);
+            let redraw_requested = ctx.redraw_requested();
+            let clipboard_write = ctx.take_clipboard_write();
+            if let Some(data) = self.nodes.get_mut(id) {
+                data.event_handler = Some(h);
+            }
+            EventDispatchResult {
+                consumed,
+                redraw_requested,
+                clipboard_write,
+            }
+        } else {
+            EventDispatchResult::default()
+        }
+    }
+
     fn hit_test_node(&self, id: NodeId, point: Point) -> Option<NodeId> {
         let data = self.nodes.get(id)?;
 
