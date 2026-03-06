@@ -2,6 +2,8 @@ use slotmap::SlotMap;
 
 use crate::geometry::Rect;
 use crate::node::NodeId;
+use crate::paint::CommandList;
+use crate::painter::Painter;
 
 pub(crate) struct NodeData {
     pub(crate) parent: Option<NodeId>,
@@ -11,6 +13,7 @@ pub(crate) struct NodeData {
     pub(crate) layout_dirty: bool,
     pub(crate) paint_dirty: bool,
     pub(crate) hit_test_transparent: bool,
+    pub(crate) painter: Option<Box<dyn Painter>>,
 }
 
 impl NodeData {
@@ -23,6 +26,7 @@ impl NodeData {
             layout_dirty: true,
             paint_dirty: true,
             hit_test_transparent: false,
+            painter: None,
         }
     }
 }
@@ -193,6 +197,50 @@ impl NodeTree {
         if let Some(node) = self.nodes.get_mut(id) {
             node.layout_dirty = false;
             node.paint_dirty = false;
+        }
+    }
+
+    pub fn set_painter(&mut self, id: NodeId, painter: impl Painter + 'static) {
+        if let Some(node) = self.nodes.get_mut(id) {
+            node.painter = Some(Box::new(painter));
+            node.paint_dirty = true;
+        }
+    }
+
+    pub fn run_paint(&mut self, commands: &mut CommandList) {
+        let Some(root) = self.root else { return };
+        self.paint_node(root, commands);
+    }
+
+    fn paint_node(&mut self, id: NodeId, commands: &mut CommandList) {
+        let Some(data) = self.nodes.get(id) else {
+            return;
+        };
+        if !data.visible {
+            return;
+        }
+
+        let rect = data.rect;
+        let children = data.children.clone();
+
+        commands.push_clip(rect);
+
+        let painter = self.nodes.get_mut(id).and_then(|d| d.painter.take());
+        if let Some(ref p) = painter {
+            p.paint(rect, commands);
+        }
+        if let Some(data) = self.nodes.get_mut(id) {
+            data.painter = painter;
+        }
+
+        for child in children {
+            self.paint_node(child, commands);
+        }
+
+        commands.pop_clip();
+
+        if let Some(data) = self.nodes.get_mut(id) {
+            data.paint_dirty = false;
         }
     }
 }
