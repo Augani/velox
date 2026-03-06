@@ -6,39 +6,46 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Velox is a high-performance Rust desktop framework and runtime for building large, complex, responsive desktop applications. The design is informed by Telegram Desktop's architecture patterns, translated into idiomatic Rust.
 
-**Status:** Design phase. See `rust_desktop_framework_runtime_from_tdesktop.md` for the full design document.
+**Status:** Phase 2 complete (scene + layout + invalidation). See `rust_desktop_framework_runtime_from_tdesktop.md` for the full design document.
 
 ## Build Commands
 
-Once implemented, this will be a Cargo workspace:
-
 ```bash
-cargo build                    # Build all crates
-cargo test                     # Run all tests
-cargo test -p velox-runtime    # Test specific crate
-cargo clippy                   # Lint
-cargo run --example <name>     # Run example
+cargo build                          # Build all crates
+cargo test --workspace               # Run all tests
+cargo test -p velox-runtime          # Test specific crate
+cargo clippy --workspace             # Lint
+cargo run -p velox --example demo    # Run multi-window demo
 ```
 
-## Planned Crate Architecture
+## Crate Architecture
+
+### Implemented (Phase 1 + Phase 2)
 
 ```
 crates/
-  app/        # Application assembly, startup hooks, service registration
-  runtime/    # Event loop, schedulers, task queues, power policy (CORE)
-  reactive/   # Signal<T>, Computed<T>, Event<T>, subscriptions
-  platform/   # Cross-platform traits + OS-specific impls (win/mac/linux)
-  window/     # Window lifecycle, DPI, surface creation
-  scene/      # Retained view tree, layout, invalidation, hit testing
-  render/     # GPU abstraction, surfaces, atlases, fallback paths
-  text/       # Shaping, bidi, IME, selection, glyph caching
-  style/      # Typed design tokens, theming, palette
-  animation/  # Frame-synced animations, power-aware transitions
-  list/       # Virtualized lists/grids, prefetch, visibility hooks
-  media/      # Image/video decode pipeline, visibility-based pause
-  storage/    # Settings, cache, SQLite, migrations
-  codegen/    # Style/resource/protocol generators
-  devtools/   # Frame timing, layout cost, inspector
+  velox/          # Facade crate with prelude, re-exports all sub-crates
+  velox-app/      # App builder, VeloxHandler (winit ApplicationHandler)
+  velox-reactive/ # Signal<T> (auto-tracking), Computed<T>, Event<T>, Batch
+  velox-runtime/  # FrameClock, CancellationToken, UiQueue, ComputePool, IoExecutor, DeliverQueue, Runtime, PowerPolicy
+  velox-platform/ # PlatformPower/App/Clipboard traits + StubPlatform
+  velox-window/   # WindowConfig, WindowId, ManagedWindow, WindowManager
+  velox-scene/    # Retained node tree, layout, paint commands, hit testing, focus, overlays
+```
+
+### Planned (Phase 3+)
+
+```
+crates/
+  velox-render/    # GPU abstraction, surfaces, atlases, fallback paths
+  velox-text/      # Shaping, bidi, IME, selection, glyph caching
+  velox-style/     # Typed design tokens, theming, palette
+  velox-animation/ # Frame-synced animations, power-aware transitions
+  velox-list/      # Virtualized lists/grids, prefetch, visibility hooks
+  velox-media/     # Image/video decode pipeline, visibility-based pause
+  velox-storage/   # Settings, cache, SQLite, migrations
+  velox-codegen/   # Style/resource/protocol generators
+  velox-devtools/  # Frame timing, layout cost, inspector
 ```
 
 ## Core Architectural Principles
@@ -72,8 +79,8 @@ All spawned tasks support cancellation, ownership binding, priority hints.
 
 ## Implementation Order
 
-1. Runtime + window shell (event loop, schedulers, lifetime management)
-2. Scene + layout + invalidation
+1. Runtime + window shell (event loop, schedulers, lifetime management) -- DONE
+2. Scene + layout + invalidation -- DONE
 3. Text + input + custom painting
 4. Virtualized collections + media
 5. Style codegen + theming
