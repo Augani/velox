@@ -1,5 +1,6 @@
 mod attrs;
 mod buffer;
+mod editable;
 mod font_system;
 mod rasterizer;
 mod selection;
@@ -7,6 +8,7 @@ mod undo;
 
 pub use attrs::{FontFamily, FontStyle, TextAttrs};
 pub use buffer::TextBuffer;
+pub use editable::{CursorDirection, EditableText};
 pub use font_system::FontSystem;
 pub use rasterizer::{GlyphRasterizer, RasterizedGlyph};
 pub use selection::{Affinity, TextPosition, TextSelection};
