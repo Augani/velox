@@ -4,6 +4,14 @@ use crate::font_system::FontSystem;
 use crate::selection::TextSelection;
 use crate::undo::{EditCommand, UndoStack};
 
+#[derive(Debug, Clone, Copy)]
+pub struct TextRect {
+    pub x: f32,
+    pub y: f32,
+    pub width: f32,
+    pub height: f32,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CursorDirection {
     Left,
@@ -227,6 +235,94 @@ impl EditableText {
         self.reshape(font_system);
     }
 
+    pub fn hit_test(&self, _font_system: &FontSystem, x: f32, y: f32) -> usize {
+        if x < 0.0 {
+            return 0;
+        }
+        for run in self.buffer.layout_runs() {
+            if y >= run.line_top && y < run.line_top + run.line_height {
+                let mut last_end = 0;
+                for glyph in run.glyphs.iter() {
+                    let glyph_mid = glyph.x + glyph.w / 2.0;
+                    if x < glyph_mid {
+                        return glyph.start;
+                    }
+                    last_end = glyph.end;
+                }
+                return last_end;
+            }
+        }
+        self.text.len()
+    }
+
+    pub fn cursor_rect(&self) -> Option<TextRect> {
+        let pos = self.selection.focus;
+        for run in self.buffer.layout_runs() {
+            for glyph in run.glyphs.iter() {
+                if pos >= glyph.start && pos <= glyph.end {
+                    let x = if pos == glyph.start {
+                        glyph.x
+                    } else {
+                        glyph.x + glyph.w
+                    };
+                    return Some(TextRect {
+                        x,
+                        y: run.line_top,
+                        width: 1.5,
+                        height: run.line_height,
+                    });
+                }
+            }
+            if run.glyphs.is_empty() || pos >= run.glyphs.last().map(|g| g.end).unwrap_or(0) {
+                let x = run.glyphs.last().map(|g| g.x + g.w).unwrap_or(0.0);
+                return Some(TextRect {
+                    x,
+                    y: run.line_top,
+                    width: 1.5,
+                    height: run.line_height,
+                });
+            }
+        }
+        Some(TextRect {
+            x: 0.0,
+            y: 0.0,
+            width: 1.5,
+            height: 20.0,
+        })
+    }
+
+    pub fn selection_rects(&self) -> Vec<TextRect> {
+        if self.selection.is_collapsed() {
+            return Vec::new();
+        }
+        let (start, end) = self.selection.range();
+        let mut rects = Vec::new();
+        for run in self.buffer.layout_runs() {
+            let mut line_start_x = None;
+            let mut line_end_x = None;
+            for glyph in run.glyphs.iter() {
+                if glyph.end <= start || glyph.start >= end {
+                    continue;
+                }
+                let gx_start = glyph.x;
+                let gx_end = glyph.x + glyph.w;
+                if line_start_x.is_none() {
+                    line_start_x = Some(gx_start);
+                }
+                line_end_x = Some(gx_end);
+            }
+            if let (Some(sx), Some(ex)) = (line_start_x, line_end_x) {
+                rects.push(TextRect {
+                    x: sx,
+                    y: run.line_top,
+                    width: ex - sx,
+                    height: run.line_height,
+                });
+            }
+        }
+        rects
+    }
+
     pub fn buffer(&self) -> &TextBuffer {
         &self.buffer
     }
@@ -419,5 +515,63 @@ mod tests {
         e.move_cursor_to(&mut fs, 2);
         e.move_cursor(&mut fs, CursorDirection::Right, false);
         assert_eq!(e.selection().focus, 2);
+    }
+
+    #[test]
+    fn hit_test_beginning() {
+        let mut fs = FontSystem::new();
+        let e = make_editable(&mut fs, "Hello World");
+        let pos = e.hit_test(&fs, 0.0, 10.0);
+        assert_eq!(pos, 0);
+    }
+
+    #[test]
+    fn hit_test_end() {
+        let mut fs = FontSystem::new();
+        let e = make_editable(&mut fs, "Hello World");
+        let pos = e.hit_test(&fs, 999.0, 10.0);
+        assert_eq!(pos, 11);
+    }
+
+    #[test]
+    fn hit_test_negative_returns_zero() {
+        let mut fs = FontSystem::new();
+        let e = make_editable(&mut fs, "Hello");
+        let pos = e.hit_test(&fs, -10.0, 10.0);
+        assert_eq!(pos, 0);
+    }
+
+    #[test]
+    fn cursor_rect_at_start() {
+        let mut fs = FontSystem::new();
+        let mut e = make_editable(&mut fs, "Hello");
+        e.move_cursor_to(&mut fs, 0);
+        let rect = e.cursor_rect();
+        assert!(rect.is_some());
+        let rect = rect.unwrap();
+        assert!(rect.width > 0.0);
+        assert!(rect.height > 0.0);
+    }
+
+    #[test]
+    fn selection_rects_when_selected() {
+        let mut fs = FontSystem::new();
+        let mut e = make_editable(&mut fs, "Hello World");
+        e.set_selection(TextSelection {
+            anchor: 0,
+            focus: 5,
+        });
+        let rects = e.selection_rects();
+        assert!(!rects.is_empty());
+        assert!(rects[0].width > 0.0);
+    }
+
+    #[test]
+    fn selection_rects_empty_when_collapsed() {
+        let mut fs = FontSystem::new();
+        let mut e = make_editable(&mut fs, "Hello");
+        e.move_cursor_to(&mut fs, 2);
+        let rects = e.selection_rects();
+        assert!(rects.is_empty());
     }
 }
