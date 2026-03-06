@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use crate::element::{AnyElement, ElementKey};
 use crate::layout_engine::LayoutEngine;
 use crate::style::Style;
@@ -156,56 +158,81 @@ impl Reconciler {
         let old_slots = std::mem::take(&mut self.slots);
         let mut new_slots = Vec::new();
 
-        let max_len = old_slots.len().max(new_elements.len());
+        let mut old_keyed: HashMap<ElementKey, usize> = HashMap::new();
+        let mut old_used = vec![false; old_slots.len()];
+        for (i, slot) in old_slots.iter().enumerate() {
+            if let Some(key) = slot.key {
+                old_keyed.insert(key, i);
+            }
+        }
 
-        for i in 0..max_len {
-            match (old_slots.get(i), new_elements.get_mut(i)) {
-                (Some(old), Some(new_el)) => {
-                    if old.element_type == new_el.element_type_id() {
-                        let new_style = new_el.style().clone();
-                        let layout_changed = old.style.is_layout_affecting_different(&new_style);
-                        if old.style != new_style {
-                            patches.push(Patch::UpdateStyle {
-                                node_id: old.node_id,
-                                taffy_node: old.taffy_node,
-                                style: new_style.clone(),
-                                layout_changed,
-                            });
-                        }
+        let mut old_unkeyed_cursor = 0;
 
-                        let mut child_reconciler = Reconciler {
-                            slots: old.children.clone(),
-                        };
-                        let child_patches = child_reconciler.diff(
-                            new_el.children_mut(),
-                            Some(old.node_id),
-                            tree,
-                            engine,
-                        );
-                        patches.extend(child_patches);
+        for new_el in new_elements.iter_mut() {
+            let matched = if let Some(key) = new_el.key {
+                old_keyed.get(&key).copied().filter(|&i| !old_used[i])
+            } else {
+                loop {
+                    if old_unkeyed_cursor >= old_slots.len() {
+                        break None;
+                    }
+                    if !old_used[old_unkeyed_cursor] && old_slots[old_unkeyed_cursor].key.is_none()
+                    {
+                        break Some(old_unkeyed_cursor);
+                    }
+                    old_unkeyed_cursor += 1;
+                }
+            };
 
-                        new_slots.push(ReconcilerSlot {
+            if let Some(idx) = matched {
+                old_used[idx] = true;
+                let old = &old_slots[idx];
+
+                if old.element_type == new_el.element_type_id() {
+                    let new_style = new_el.style().clone();
+                    let layout_changed = old.style.is_layout_affecting_different(&new_style);
+                    if old.style != new_style {
+                        patches.push(Patch::UpdateStyle {
                             node_id: old.node_id,
                             taffy_node: old.taffy_node,
-                            element_type: old.element_type,
-                            key: new_el.key,
-                            style: new_el.style().clone(),
-                            children: child_reconciler.slots,
+                            style: new_style.clone(),
+                            layout_changed,
                         });
-                    } else {
-                        self.collect_removes(old, &mut patches);
-                        let slot = self.mount_element(new_el, parent_node, tree, engine);
-                        new_slots.push(slot);
                     }
-                }
-                (Some(old), None) => {
+
+                    let mut child_reconciler = Reconciler {
+                        slots: old.children.clone(),
+                    };
+                    let child_patches = child_reconciler.diff(
+                        new_el.children_mut(),
+                        Some(old.node_id),
+                        tree,
+                        engine,
+                    );
+                    patches.extend(child_patches);
+
+                    new_slots.push(ReconcilerSlot {
+                        node_id: old.node_id,
+                        taffy_node: old.taffy_node,
+                        element_type: old.element_type,
+                        key: new_el.key,
+                        style: new_el.style().clone(),
+                        children: child_reconciler.slots,
+                    });
+                } else {
                     self.collect_removes(old, &mut patches);
-                }
-                (None, Some(new_el)) => {
                     let slot = self.mount_element(new_el, parent_node, tree, engine);
                     new_slots.push(slot);
                 }
-                (None, None) => break,
+            } else {
+                let slot = self.mount_element(new_el, parent_node, tree, engine);
+                new_slots.push(slot);
+            }
+        }
+
+        for (i, slot) in old_slots.iter().enumerate() {
+            if !old_used[i] {
+                self.collect_removes(slot, &mut patches);
             }
         }
 
@@ -460,5 +487,89 @@ mod tests {
         ];
         let _patches = reconciler.diff(&mut els2, Some(root), &mut tree, &mut engine);
         assert_eq!(reconciler.slots().len(), 2);
+    }
+
+    #[test]
+    fn keyed_reorder_preserves_node_ids() {
+        use crate::element::IntoElement;
+
+        let mut tree = NodeTree::new();
+        let mut engine = LayoutEngine::new();
+        let mut reconciler = Reconciler::new();
+
+        let root = tree.insert(None);
+
+        let mut els = vec![
+            div().w(px(10.0)).key(1).into_any_element(),
+            div().w(px(20.0)).key(2).into_any_element(),
+            div().w(px(30.0)).key(3).into_any_element(),
+        ];
+        reconciler.mount(&mut els, Some(root), &mut tree, &mut engine);
+
+        let old_node_1 = reconciler.slots()[0].node_id;
+        let old_node_2 = reconciler.slots()[1].node_id;
+        let old_node_3 = reconciler.slots()[2].node_id;
+
+        let mut reordered = vec![
+            div().w(px(30.0)).key(3).into_any_element(),
+            div().w(px(10.0)).key(1).into_any_element(),
+            div().w(px(20.0)).key(2).into_any_element(),
+        ];
+        reconciler.diff(&mut reordered, Some(root), &mut tree, &mut engine);
+
+        assert_eq!(reconciler.slots()[0].node_id, old_node_3);
+        assert_eq!(reconciler.slots()[1].node_id, old_node_1);
+        assert_eq!(reconciler.slots()[2].node_id, old_node_2);
+    }
+
+    #[test]
+    fn keyed_insert_and_remove() {
+        use crate::element::IntoElement;
+
+        let mut tree = NodeTree::new();
+        let mut engine = LayoutEngine::new();
+        let mut reconciler = Reconciler::new();
+
+        let root = tree.insert(None);
+
+        let mut els = vec![
+            div().key(1).into_any_element(),
+            div().key(2).into_any_element(),
+        ];
+        reconciler.mount(&mut els, Some(root), &mut tree, &mut engine);
+        let node_2 = reconciler.slots()[1].node_id;
+
+        let mut new_els = vec![
+            div().key(2).into_any_element(),
+            div().key(3).into_any_element(),
+        ];
+        let patches = reconciler.diff(&mut new_els, Some(root), &mut tree, &mut engine);
+
+        assert_eq!(reconciler.slots()[0].node_id, node_2);
+        assert!(patches
+            .iter()
+            .any(|p| matches!(p, Patch::RemoveNode { .. })));
+    }
+
+    #[test]
+    fn mixed_keyed_unkeyed() {
+        use crate::element::IntoElement;
+
+        let mut tree = NodeTree::new();
+        let mut engine = LayoutEngine::new();
+        let mut reconciler = Reconciler::new();
+
+        let root = tree.insert(None);
+
+        let mut els = vec![div().key(1).into_any_element(), div().into_any_element()];
+        reconciler.mount(&mut els, Some(root), &mut tree, &mut engine);
+        let keyed_node = reconciler.slots()[0].node_id;
+        let unkeyed_node = reconciler.slots()[1].node_id;
+
+        let mut new_els = vec![div().into_any_element(), div().key(1).into_any_element()];
+        reconciler.diff(&mut new_els, Some(root), &mut tree, &mut engine);
+
+        assert_eq!(reconciler.slots()[0].node_id, unkeyed_node);
+        assert_eq!(reconciler.slots()[1].node_id, keyed_node);
     }
 }

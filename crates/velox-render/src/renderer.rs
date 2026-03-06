@@ -222,6 +222,7 @@ impl Renderer {
                     PaintCommand::PushLayer { .. } => {}
                     PaintCommand::PopLayer => {}
                     PaintCommand::BoxShadow { .. } => {}
+                    PaintCommand::FillGradient { .. } => {}
                 }
             }
         }

@@ -26,11 +26,22 @@ pub struct LayoutRequest {
 pub struct LayoutContext<'a> {
     #[allow(dead_code)]
     pub(crate) taffy: &'a mut taffy::TaffyTree<()>,
+    pub(crate) font_system: &'a mut velox_text::FontSystem,
+}
+
+impl<'a> LayoutContext<'a> {
+    pub fn font_system(&mut self) -> &mut velox_text::FontSystem {
+        self.font_system
+    }
 }
 
 pub struct PaintContext<'a> {
     pub(crate) commands: &'a mut velox_scene::CommandList,
     pub(crate) theme: &'a velox_style::Theme,
+    pub(crate) font_system: &'a mut velox_text::FontSystem,
+    pub(crate) glyph_rasterizer: &'a mut velox_text::GlyphRasterizer,
+    pub(crate) hovered_node: Option<velox_scene::NodeId>,
+    pub(crate) active_node: Option<velox_scene::NodeId>,
 }
 
 impl<'a> PaintContext<'a> {
@@ -40,6 +51,22 @@ impl<'a> PaintContext<'a> {
 
     pub fn theme(&self) -> &velox_style::Theme {
         self.theme
+    }
+
+    pub fn font_system(&mut self) -> &mut velox_text::FontSystem {
+        self.font_system
+    }
+
+    pub fn glyph_rasterizer(&mut self) -> &mut velox_text::GlyphRasterizer {
+        self.glyph_rasterizer
+    }
+
+    pub fn is_hovered(&self, node: velox_scene::NodeId) -> bool {
+        self.hovered_node == Some(node)
+    }
+
+    pub fn is_active(&self, node: velox_scene::NodeId) -> bool {
+        self.active_node == Some(node)
     }
 }
 

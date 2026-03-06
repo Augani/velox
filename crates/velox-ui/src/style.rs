@@ -233,6 +233,8 @@ pub struct Style {
     pub text_align: Option<TextAlign>,
     pub text_overflow: Option<TextOverflow>,
     pub text_decoration: Option<TextDecoration>,
+
+    pub background_gradient: Option<velox_scene::Gradient>,
 }
 
 impl Style {
@@ -315,6 +317,10 @@ impl Style {
 
         if !other.box_shadows.is_empty() {
             self.box_shadows = other.box_shadows.clone();
+        }
+
+        if other.background_gradient.is_some() {
+            self.background_gradient = other.background_gradient.clone();
         }
     }
 

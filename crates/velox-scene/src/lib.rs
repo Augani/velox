@@ -12,7 +12,8 @@ mod painter;
 
 pub use layout::{Direction, Layout, PaddingLayout, StackLayout};
 pub use paint::{
-    BlendMode, Color, CommandList, GlyphUpload, PaintCommand, PositionedGlyph, TextureId,
+    BlendMode, Color, CommandList, GlyphUpload, Gradient, GradientStop, PaintCommand,
+    PositionedGlyph, TextureId,
 };
 pub use painter::Painter;
 

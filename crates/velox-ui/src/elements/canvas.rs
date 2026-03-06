@@ -87,9 +87,15 @@ mod tests {
 
         let theme = velox_style::Theme::light();
         let mut commands = velox_scene::CommandList::new();
+        let mut font_system = velox_text::FontSystem::new();
+        let mut glyph_rasterizer = velox_text::GlyphRasterizer::new();
         let mut cx = PaintContext {
             commands: &mut commands,
             theme: &theme,
+            font_system: &mut font_system,
+            glyph_rasterizer: &mut glyph_rasterizer,
+            hovered_node: None,
+            active_node: None,
         };
         let mut state = CanvasState;
         canvas_el.paint(&mut state, Rect::new(0.0, 0.0, 100.0, 100.0), &mut cx);

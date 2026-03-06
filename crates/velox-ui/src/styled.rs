@@ -518,6 +518,29 @@ pub trait Styled: Sized {
         self
     }
 
+    fn bg_linear_gradient(mut self, angle: f32, stops: Vec<(f32, velox_scene::Color)>) -> Self {
+        self.style_mut().background_gradient = Some(velox_scene::Gradient::Linear {
+            angle_deg: angle,
+            stops: stops
+                .into_iter()
+                .map(|(offset, color)| velox_scene::GradientStop { offset, color })
+                .collect(),
+        });
+        self
+    }
+
+    fn bg_radial_gradient(mut self, stops: Vec<(f32, velox_scene::Color)>) -> Self {
+        self.style_mut().background_gradient = Some(velox_scene::Gradient::Radial {
+            center_x: 0.5,
+            center_y: 0.5,
+            stops: stops
+                .into_iter()
+                .map(|(offset, color)| velox_scene::GradientStop { offset, color })
+                .collect(),
+        });
+        self
+    }
+
     fn when(self, condition: bool, then: impl FnOnce(Self) -> Self) -> Self {
         if condition {
             then(self)

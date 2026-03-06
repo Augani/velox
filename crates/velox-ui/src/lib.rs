@@ -1,3 +1,4 @@
+pub mod arena;
 mod component;
 pub mod element;
 mod elements;
@@ -9,6 +10,7 @@ mod reconciler;
 mod style;
 mod styled;
 
+pub use arena::RenderArena;
 pub use component::{Component, ComponentHost, ViewContext};
 pub use element::*;
 pub use elements::*;

@@ -4,7 +4,7 @@ use crate::element::{
 use crate::parent::IntoAnyElement;
 use crate::style::Style;
 use crate::styled::Styled;
-use velox_scene::Rect;
+use velox_scene::{PositionedGlyph, Rect};
 
 pub struct TextElement {
     pub(crate) content: String,
@@ -30,40 +30,168 @@ impl HasStyle for TextElement {
     }
 }
 
-#[derive(Default)]
-pub struct TextState;
+pub struct TextState {
+    buffer: Option<velox_text::TextBuffer>,
+    last_content: String,
+    last_width: f32,
+}
+
+impl Default for TextState {
+    fn default() -> Self {
+        Self {
+            buffer: None,
+            last_content: String::new(),
+            last_width: 0.0,
+        }
+    }
+}
+
+impl TextState {
+    fn ensure_buffer(
+        &mut self,
+        content: &str,
+        style: &Style,
+        available_width: f32,
+        font_system: &mut velox_text::FontSystem,
+    ) {
+        let font_size = style.font_size.unwrap_or(14.0);
+        let line_height = style.line_height.unwrap_or(font_size * 1.2);
+
+        let needs_rebuild = self.buffer.is_none()
+            || self.last_content != content
+            || (self.last_width - available_width).abs() > 0.5;
+
+        if needs_rebuild {
+            let mut buffer = velox_text::TextBuffer::new(font_system, font_size, line_height);
+
+            let mut attrs = velox_text::TextAttrs {
+                size: font_size,
+                ..Default::default()
+            };
+            if let Some(ref family) = style.font_family {
+                attrs.family = velox_text::FontFamily::Named(family.clone());
+            }
+            if let Some(weight) = style.font_weight {
+                attrs.weight = weight.to_u16();
+            }
+
+            buffer.set_text(font_system, content, attrs);
+            let buf_width = if available_width > 0.0 {
+                available_width
+            } else {
+                f32::MAX
+            };
+            buffer.set_size(font_system, buf_width, f32::MAX);
+            buffer.shape(font_system);
+
+            self.buffer = Some(buffer);
+            self.last_content = content.to_string();
+            self.last_width = available_width;
+        }
+    }
+}
 
 impl Element for TextElement {
     type State = TextState;
 
     fn layout(
         &mut self,
-        _state: &mut TextState,
+        state: &mut TextState,
         _children: &[AnyElement],
-        _cx: &mut LayoutContext,
+        cx: &mut LayoutContext,
     ) -> LayoutRequest {
-        LayoutRequest {
-            taffy_style: crate::layout_engine::convert_style(&self.style),
+        let mut taffy_style = crate::layout_engine::convert_style(&self.style);
+
+        let available_width = match &self.style.width {
+            Some(crate::length::Length::Px(w)) => *w,
+            _ => 0.0,
+        };
+
+        state.ensure_buffer(
+            &self.content,
+            &self.style,
+            available_width,
+            cx.font_system(),
+        );
+
+        if let Some(buffer) = &state.buffer
+            && (self.style.width.is_none() || self.style.height.is_none())
+        {
+            let mut max_w: f32 = 0.0;
+            let mut total_h: f32 = 0.0;
+            for run in buffer.layout_runs() {
+                let run_w: f32 = run.glyphs.iter().map(|g| g.w).sum();
+                max_w = max_w.max(run_w);
+                total_h = total_h.max(run.line_y + run.line_height);
+            }
+            if self.style.width.is_none() {
+                taffy_style.size.width = taffy::Dimension::Length(max_w.ceil());
+            }
+            if self.style.height.is_none() {
+                taffy_style.size.height = taffy::Dimension::Length(total_h.ceil());
+            }
         }
+
+        LayoutRequest { taffy_style }
     }
 
-    fn paint(&mut self, _state: &mut TextState, bounds: Rect, cx: &mut PaintContext) {
+    fn paint(&mut self, state: &mut TextState, bounds: Rect, cx: &mut PaintContext) {
+        if let Some(bg) = self.style.background {
+            cx.commands().fill_rect(bounds, bg);
+        }
+
+        if self.content.is_empty() {
+            return;
+        }
+
+        state.ensure_buffer(&self.content, &self.style, bounds.width, cx.font_system());
+
         let color = self
             .style
             .text_color
             .unwrap_or(velox_scene::Color::rgb(0, 0, 0));
-        if let Some(bg) = self.style.background {
-            cx.commands().fill_rect(bounds, bg);
+
+        let Some(ref buffer) = state.buffer else {
+            return;
+        };
+
+        let mut glyphs = Vec::new();
+        let mut uploads = Vec::new();
+
+        for run in buffer.layout_runs() {
+            for glyph in run.glyphs.iter() {
+                let physical = glyph.physical((0.0, 0.0), 1.0);
+
+                let rasterized = cx
+                    .glyph_rasterizer
+                    .rasterize(cx.font_system, physical.cache_key);
+
+                if let Some(raster) = rasterized.as_ref().filter(|r| r.width > 0 && r.height > 0) {
+                    uploads.push((
+                        physical.cache_key,
+                        raster.width,
+                        raster.height,
+                        raster.data.clone(),
+                    ));
+                }
+
+                glyphs.push(PositionedGlyph {
+                    cache_key: physical.cache_key,
+                    x: bounds.x + physical.x as f32,
+                    y: bounds.y + run.line_y + physical.y as f32,
+                    width: glyph.w,
+                    height: run.line_height,
+                });
+            }
         }
-        cx.commands().fill_rect(
-            Rect::new(
-                bounds.x,
-                bounds.y,
-                bounds.width.min(self.content.len() as f32 * 8.0),
-                bounds.height.min(16.0),
-            ),
-            color,
-        );
+
+        for (cache_key, width, height, data) in uploads {
+            cx.commands().upload_glyph(cache_key, width, height, data);
+        }
+
+        if !glyphs.is_empty() {
+            cx.commands().draw_glyphs(glyphs, color);
+        }
     }
 }
 
@@ -138,5 +266,78 @@ mod tests {
     fn string_into_element() {
         let el: TextElement = String::from("world").into_element();
         assert_eq!(el.content, "world");
+    }
+
+    #[test]
+    fn paint_emits_draw_glyphs() {
+        let mut el = text("Hi");
+        let theme = velox_style::Theme::light();
+        let mut commands = velox_scene::CommandList::new();
+        let mut font_system = velox_text::FontSystem::new();
+        let mut glyph_rasterizer = velox_text::GlyphRasterizer::new();
+        let mut state = TextState::default();
+
+        let bounds = Rect::new(0.0, 0.0, 200.0, 30.0);
+        let mut cx = PaintContext {
+            commands: &mut commands,
+            theme: &theme,
+            font_system: &mut font_system,
+            glyph_rasterizer: &mut glyph_rasterizer,
+            hovered_node: None,
+            active_node: None,
+        };
+        el.paint(&mut state, bounds, &mut cx);
+
+        let has_draw_glyphs = commands
+            .commands()
+            .iter()
+            .any(|c| matches!(c, velox_scene::PaintCommand::DrawGlyphs { .. }));
+        assert!(has_draw_glyphs);
+    }
+
+    #[test]
+    fn empty_text_no_commands() {
+        let mut el = text("");
+        let theme = velox_style::Theme::light();
+        let mut commands = velox_scene::CommandList::new();
+        let mut font_system = velox_text::FontSystem::new();
+        let mut glyph_rasterizer = velox_text::GlyphRasterizer::new();
+        let mut state = TextState::default();
+
+        let bounds = Rect::new(0.0, 0.0, 200.0, 30.0);
+        let mut cx = PaintContext {
+            commands: &mut commands,
+            theme: &theme,
+            font_system: &mut font_system,
+            glyph_rasterizer: &mut glyph_rasterizer,
+            hovered_node: None,
+            active_node: None,
+        };
+        el.paint(&mut state, bounds, &mut cx);
+
+        assert!(commands.commands().is_empty());
+    }
+
+    #[test]
+    fn layout_computes_intrinsic_size() {
+        let mut el = text("Hello World");
+        let mut font_system = velox_text::FontSystem::new();
+        let mut taffy = taffy::TaffyTree::new();
+        let mut state = TextState::default();
+
+        let mut cx = LayoutContext {
+            taffy: &mut taffy,
+            font_system: &mut font_system,
+        };
+        let req = el.layout(&mut state, &[], &mut cx);
+
+        match req.taffy_style.size.width {
+            taffy::Dimension::Length(w) => assert!(w > 0.0),
+            _ => panic!("expected intrinsic width"),
+        }
+        match req.taffy_style.size.height {
+            taffy::Dimension::Length(h) => assert!(h > 0.0),
+            _ => panic!("expected intrinsic height"),
+        }
     }
 }

@@ -25,6 +25,8 @@ version = "0.1.0"
 edition = "2024"
 license = "MIT"
 rust-version = "1.85"
+description = "High-performance Rust desktop framework for building large, complex, responsive applications"
+repository = "https://github.com/Augani/velox"
 
 [workspace.dependencies]
 velox = { path = "crates/velox" }

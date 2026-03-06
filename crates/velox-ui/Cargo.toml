@@ -7,4 +7,7 @@ edition.workspace = true
 velox-scene = { workspace = true }
 velox-reactive = { workspace = true }
 velox-style = { workspace = true }
+velox-text = { workspace = true }
+velox-list = { workspace = true }
 taffy = { workspace = true }
+bumpalo = "3"

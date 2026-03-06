@@ -4637,10 +4637,13 @@ dependencies = [
 name = "velox-ui"
 version = "0.1.0"
 dependencies = [
+ "bumpalo",
  "taffy",
+ "velox-list",
  "velox-reactive",
  "velox-scene",
  "velox-style",
+ "velox-text",
 ]
 
 [[package]]

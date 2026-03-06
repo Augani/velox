@@ -20,3 +20,12 @@ pub trait ParentElement: Sized {
 pub trait IntoAnyElement {
     fn into_any_element(self) -> AnyElement;
 }
+
+impl<E: IntoAnyElement> IntoAnyElement for crate::element::Keyed<E> {
+    fn into_any_element(self) -> AnyElement {
+        let key = self.key;
+        let mut any = self.inner.into_any_element();
+        any.key = Some(key);
+        any
+    }
+}

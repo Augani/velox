@@ -38,6 +38,25 @@ pub struct PositionedGlyph {
     pub height: f32,
 }
 
+#[derive(Debug, Clone, PartialEq)]
+pub struct GradientStop {
+    pub offset: f32,
+    pub color: Color,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum Gradient {
+    Linear {
+        angle_deg: f32,
+        stops: Vec<GradientStop>,
+    },
+    Radial {
+        center_x: f32,
+        center_y: f32,
+        stops: Vec<GradientStop>,
+    },
+}
+
 #[derive(Debug, Clone)]
 pub enum PaintCommand {
     FillRect {
@@ -72,6 +91,10 @@ pub enum PaintCommand {
         blur_radius: f32,
         offset: crate::geometry::Point,
         spread: f32,
+    },
+    FillGradient {
+        rect: Rect,
+        gradient: Gradient,
     },
 }
 
@@ -151,6 +174,12 @@ impl CommandList {
     pub fn pop_layer(&mut self) {
         self.bump_epoch();
         self.commands.push(PaintCommand::PopLayer);
+    }
+
+    pub fn fill_gradient(&mut self, rect: Rect, gradient: Gradient) {
+        self.bump_epoch();
+        self.commands
+            .push(PaintCommand::FillGradient { rect, gradient });
     }
 
     pub fn box_shadow(
