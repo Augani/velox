@@ -6,8 +6,10 @@ edition.workspace = true
 [dependencies]
 velox-reactive = { workspace = true }
 velox-platform = { workspace = true }
+velox-render = { workspace = true }
 velox-runtime = { workspace = true }
 velox-scene = { workspace = true }
+velox-text = { workspace = true }
 velox-window = { workspace = true }
 velox-app = { workspace = true }
 
@@ -16,3 +18,6 @@ name = "demo"
 
 [[example]]
 name = "phase1_smoke"
+
+[[example]]
+name = "phase3_demo"
