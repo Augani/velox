@@ -19,13 +19,15 @@ impl GpuContext {
         }))
         .expect("failed to find a suitable GPU adapter");
 
-        let (device, queue) = pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor {
-            label: Some("velox"),
-            required_features: wgpu::Features::empty(),
-            required_limits: wgpu::Limits::default(),
-            memory_hints: Default::default(),
-            trace: wgpu::Trace::Off,
-        }))
+        let (device, queue) = pollster::block_on(adapter.request_device(
+            &wgpu::DeviceDescriptor {
+                label: Some("velox"),
+                required_features: wgpu::Features::empty(),
+                required_limits: wgpu::Limits::default(),
+                memory_hints: Default::default(),
+            },
+            None,
+        ))
         .expect("failed to create GPU device");
 
         Self {
