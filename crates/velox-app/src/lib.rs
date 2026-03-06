@@ -1,5 +1,4 @@
-mod builder;
+mod app;
 mod handler;
 
-pub use builder::{App, AppBuilder};
-pub use handler::VeloxHandler;
+pub use app::App;

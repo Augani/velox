@@ -5,37 +5,37 @@ use winit::event_loop::ActiveEventLoop;
 use velox_runtime::Runtime;
 use velox_window::{WindowConfig, WindowManager};
 
-pub struct VeloxHandler {
+pub(crate) struct VeloxHandler {
     runtime: Runtime,
     window_manager: WindowManager,
     pending_windows: Vec<WindowConfig>,
+    initialized: bool,
 }
 
 impl VeloxHandler {
-    pub fn new(runtime: Runtime, window_configs: Vec<WindowConfig>) -> Self {
+    pub(crate) fn new(runtime: Runtime, window_configs: Vec<WindowConfig>) -> Self {
         Self {
             runtime,
             window_manager: WindowManager::new(),
             pending_windows: window_configs,
+            initialized: false,
         }
-    }
-
-    pub fn runtime(&self) -> &Runtime {
-        &self.runtime
-    }
-
-    pub fn runtime_mut(&mut self) -> &mut Runtime {
-        &mut self.runtime
-    }
-
-    pub fn window_manager(&self) -> &WindowManager {
-        &self.window_manager
     }
 }
 
 impl ApplicationHandler for VeloxHandler {
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
+        if self.initialized {
+            return;
+        }
+        self.initialized = true;
+
         let configs: Vec<WindowConfig> = self.pending_windows.drain(..).collect();
+        if configs.is_empty() {
+            event_loop.exit();
+            return;
+        }
+
         for config in configs {
             let _ = self.window_manager.create_window(event_loop, config);
         }
