@@ -1,5 +1,7 @@
 use slotmap::SlotMap;
 
+use crate::event::KeyEvent;
+use crate::event_handler::{EventContext, EventHandler};
 use crate::geometry::{Point, Rect};
 use crate::layout::Layout;
 use crate::node::NodeId;
@@ -16,6 +18,7 @@ pub(crate) struct NodeData {
     pub(crate) hit_test_transparent: bool,
     pub(crate) painter: Option<Box<dyn Painter>>,
     pub(crate) layout: Option<Box<dyn Layout>>,
+    pub(crate) event_handler: Option<Box<dyn EventHandler>>,
 }
 
 impl NodeData {
@@ -30,6 +33,7 @@ impl NodeData {
             hit_test_transparent: false,
             painter: None,
             layout: None,
+            event_handler: None,
         }
     }
 }
@@ -290,6 +294,50 @@ impl NodeTree {
         self.hit_test_node(root, point)
     }
 
+    pub fn set_event_handler(&mut self, id: NodeId, handler: impl EventHandler + 'static) {
+        if let Some(node) = self.nodes.get_mut(id) {
+            node.event_handler = Some(Box::new(handler));
+        }
+    }
+
+    pub fn dispatch_key_event(&mut self, id: NodeId, event: &KeyEvent) -> bool {
+        let Some(data) = self.nodes.get(id) else {
+            return false;
+        };
+        let rect = data.rect;
+        let handler = self.nodes.get_mut(id).and_then(|d| d.event_handler.take());
+        let consumed = if let Some(mut h) = handler {
+            let mut ctx = EventContext::new(rect);
+            let result = h.handle_key(event, &mut ctx);
+            if let Some(data) = self.nodes.get_mut(id) {
+                data.event_handler = Some(h);
+            }
+            result
+        } else {
+            false
+        };
+        consumed
+    }
+
+    pub fn dispatch_mouse_event(&mut self, id: NodeId, event: &crate::event::MouseEvent) -> bool {
+        let Some(data) = self.nodes.get(id) else {
+            return false;
+        };
+        let rect = data.rect;
+        let handler = self.nodes.get_mut(id).and_then(|d| d.event_handler.take());
+        let consumed = if let Some(mut h) = handler {
+            let mut ctx = EventContext::new(rect);
+            let result = h.handle_mouse(event, &mut ctx);
+            if let Some(data) = self.nodes.get_mut(id) {
+                data.event_handler = Some(h);
+            }
+            result
+        } else {
+            false
+        };
+        consumed
+    }
+
     fn hit_test_node(&self, id: NodeId, point: Point) -> Option<NodeId> {
         let data = self.nodes.get(id)?;
 
@@ -463,5 +511,64 @@ mod tests {
 
         tree.set_hit_test_transparent(root, true);
         assert_eq!(tree.is_hit_test_transparent(root), Some(true));
+    }
+
+    #[test]
+    fn set_and_dispatch_event_handler() {
+        use crate::event::{KeyEvent, KeyState};
+        use crate::event_handler::{EventContext, EventHandler};
+        use crate::shortcut::{Key, Modifiers};
+        use std::cell::Cell;
+        use std::rc::Rc;
+
+        struct CountHandler {
+            count: Rc<Cell<u32>>,
+        }
+        impl EventHandler for CountHandler {
+            fn handle_key(&mut self, _: &KeyEvent, _: &mut EventContext) -> bool {
+                self.count.set(self.count.get() + 1);
+                true
+            }
+        }
+
+        let mut tree = NodeTree::new();
+        let root = tree.insert(None);
+        tree.set_rect(root, Rect::new(0.0, 0.0, 200.0, 100.0));
+        let count = Rc::new(Cell::new(0u32));
+        tree.set_event_handler(
+            root,
+            CountHandler {
+                count: count.clone(),
+            },
+        );
+
+        let event = KeyEvent {
+            key: Key::A,
+            modifiers: Modifiers::empty(),
+            state: KeyState::Pressed,
+            text: Some("a".into()),
+        };
+        let consumed = tree.dispatch_key_event(root, &event);
+        assert!(consumed);
+        assert_eq!(count.get(), 1);
+    }
+
+    #[test]
+    fn dispatch_to_node_without_handler_returns_false() {
+        use crate::event::{KeyEvent, KeyState};
+        use crate::shortcut::{Key, Modifiers};
+
+        let mut tree = NodeTree::new();
+        let root = tree.insert(None);
+        tree.set_rect(root, Rect::new(0.0, 0.0, 200.0, 100.0));
+
+        let event = KeyEvent {
+            key: Key::A,
+            modifiers: Modifiers::empty(),
+            state: KeyState::Pressed,
+            text: Some("a".into()),
+        };
+        let consumed = tree.dispatch_key_event(root, &event);
+        assert!(!consumed);
     }
 }
