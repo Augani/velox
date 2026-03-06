@@ -57,6 +57,11 @@ impl WindowManager {
         self.windows.get(&id)
     }
 
+    pub fn close_by_winit_id(&mut self, winit_id: winit::window::WindowId) -> bool {
+        let id = WindowId::from_winit(winit_id);
+        self.windows.remove(&id).is_some()
+    }
+
     pub fn is_empty(&self) -> bool {
         self.windows.is_empty()
     }
