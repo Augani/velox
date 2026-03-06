@@ -46,14 +46,23 @@ pub enum PaintCommand {
     PopClip,
 }
 
+pub struct GlyphUpload {
+    pub cache_key: cosmic_text::CacheKey,
+    pub width: u32,
+    pub height: u32,
+    pub data: Vec<u8>,
+}
+
 pub struct CommandList {
     commands: Vec<PaintCommand>,
+    glyph_uploads: Vec<GlyphUpload>,
 }
 
 impl CommandList {
     pub fn new() -> Self {
         Self {
             commands: Vec::new(),
+            glyph_uploads: Vec::new(),
         }
     }
 
@@ -79,12 +88,32 @@ impl CommandList {
         self.commands.push(PaintCommand::PopClip);
     }
 
+    pub fn upload_glyph(
+        &mut self,
+        cache_key: cosmic_text::CacheKey,
+        width: u32,
+        height: u32,
+        data: Vec<u8>,
+    ) {
+        self.glyph_uploads.push(GlyphUpload {
+            cache_key,
+            width,
+            height,
+            data,
+        });
+    }
+
+    pub fn glyph_uploads(&self) -> &[GlyphUpload] {
+        &self.glyph_uploads
+    }
+
     pub fn commands(&self) -> &[PaintCommand] {
         &self.commands
     }
 
     pub fn clear(&mut self) {
         self.commands.clear();
+        self.glyph_uploads.clear();
     }
 }
 

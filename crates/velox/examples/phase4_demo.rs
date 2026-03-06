@@ -11,7 +11,6 @@ use velox::text::{CursorDirection, EditableText, FontSystem, GlyphRasterizer};
 struct TextInputState {
     editable: EditableText,
     font_system: FontSystem,
-    #[allow(dead_code)]
     rasterizer: GlyphRasterizer,
     focused: bool,
     cursor_visible: bool,
@@ -40,11 +39,18 @@ struct TextInputPainter {
 
 impl Painter for TextInputPainter {
     fn paint(&self, rect: Rect, commands: &mut CommandList) {
-        let state = self.state.borrow();
+        let mut state = self.state.borrow_mut();
+        let TextInputState {
+            editable,
+            font_system,
+            rasterizer,
+            focused,
+            cursor_visible,
+        } = &mut *state;
 
         commands.fill_rect(rect, Color::rgb(50, 50, 60));
 
-        for sel_rect in state.editable.selection_rects() {
+        for sel_rect in editable.selection_rects() {
             commands.fill_rect(
                 Rect::new(
                     rect.x + sel_rect.x,
@@ -57,24 +63,34 @@ impl Painter for TextInputPainter {
         }
 
         let mut glyphs = Vec::new();
-        for run in state.editable.buffer().layout_runs() {
+        for run in editable.buffer().layout_runs() {
             for glyph in run.glyphs.iter() {
                 let physical = glyph.physical((0.0, 0.0), 1.0);
-                glyphs.push(PositionedGlyph {
-                    cache_key: physical.cache_key,
-                    x: rect.x + physical.x as f32,
-                    y: rect.y + run.line_top + physical.y as f32,
-                    width: glyph.w,
-                    height: run.line_height,
-                });
+                if let Some(rasterized) = rasterizer.rasterize(font_system, physical.cache_key) {
+                    if rasterized.width > 0 && rasterized.height > 0 {
+                        commands.upload_glyph(
+                            physical.cache_key,
+                            rasterized.width,
+                            rasterized.height,
+                            rasterized.data,
+                        );
+                        glyphs.push(PositionedGlyph {
+                            cache_key: physical.cache_key,
+                            x: rect.x + physical.x as f32 + rasterized.left as f32,
+                            y: rect.y + run.line_y + physical.y as f32 - rasterized.top as f32,
+                            width: rasterized.width as f32,
+                            height: rasterized.height as f32,
+                        });
+                    }
+                }
             }
         }
         if !glyphs.is_empty() {
             commands.draw_glyphs(glyphs, Color::rgb(230, 230, 240));
         }
 
-        if state.focused && state.cursor_visible {
-            if let Some(cr) = state.editable.cursor_rect() {
+        if *focused && *cursor_visible {
+            if let Some(cr) = editable.cursor_rect() {
                 commands.fill_rect(
                     Rect::new(rect.x + cr.x, rect.y + cr.y, cr.width, cr.height),
                     Color::rgb(200, 200, 220),

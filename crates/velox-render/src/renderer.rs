@@ -26,6 +26,10 @@ impl Renderer {
         commands: &CommandList,
         atlas: &mut GlyphAtlas,
     ) -> Result<(), wgpu::SurfaceError> {
+        for upload in commands.glyph_uploads() {
+            atlas.insert(upload.cache_key, upload.width, upload.height, &upload.data);
+        }
+
         let mut rects = Vec::new();
         let mut glyph_quads = Vec::new();
 
