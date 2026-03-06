@@ -4,6 +4,7 @@ mod gpu;
 mod image_renderer;
 mod rect_renderer;
 mod renderer;
+pub mod software;
 mod surface;
 mod texture_manager;
 
@@ -13,5 +14,6 @@ pub use gpu::GpuContext;
 pub use image_renderer::{ImageQuad, ImageRenderer};
 pub use rect_renderer::{RectData, RectRenderer};
 pub use renderer::Renderer;
+pub use software::{RenderBackend, SoftwareRenderer};
 pub use surface::WindowSurface;
 pub use texture_manager::TextureManager;

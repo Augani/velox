@@ -12,3 +12,8 @@ wgpu = { workspace = true }
 winit = { workspace = true }
 pollster = { workspace = true }
 bytemuck = { workspace = true }
+softbuffer = { workspace = true, optional = true }
+tiny-skia = { workspace = true, optional = true }
+
+[features]
+software-fallback = ["dep:softbuffer", "dep:tiny-skia"]

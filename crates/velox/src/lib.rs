@@ -14,6 +14,14 @@ pub use velox_style as style;
 pub use velox_text as text;
 pub use velox_window as window;
 
+pub use velox_devtools::{ResourceChange, ResourceGraph, ResourceNode};
+pub use velox_platform::accessibility_bridge::AccessibilityBridge;
+pub use velox_render::{RenderBackend, SoftwareRenderer};
+pub use velox_scene::{
+    BlendMode, DragEvent, DragPayload, DragPhase, DragState, ImeEvent, ModalConfig,
+};
+pub use velox_text::{paragraph_direction, CompositionState, ParagraphDirection};
+
 pub mod prelude {
     pub use velox_animation::{AnimationManager, Easing, Spring, Tween};
     pub use velox_app::App;
