@@ -1,0 +1,10 @@
+[package]
+name = "velox-devtools"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+velox-scene = { workspace = true }
+
+[dev-dependencies]
+slotmap = { workspace = true }

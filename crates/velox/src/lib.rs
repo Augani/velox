@@ -1,4 +1,5 @@
 pub use velox_app as app;
+pub use velox_devtools as devtools;
 pub use velox_platform as platform;
 pub use velox_reactive as reactive;
 pub use velox_render as render;

@@ -13,6 +13,7 @@ velox-style = { workspace = true }
 velox-text = { workspace = true }
 velox-window = { workspace = true }
 velox-app = { workspace = true }
+velox-devtools = { workspace = true }
 
 [[example]]
 name = "demo"

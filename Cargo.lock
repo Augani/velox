@@ -2227,6 +2227,7 @@ name = "velox"
 version = "0.1.0"
 dependencies = [
  "velox-app",
+ "velox-devtools",
  "velox-platform",
  "velox-reactive",
  "velox-render",
@@ -2252,6 +2253,14 @@ dependencies = [
  "velox-window",
  "wgpu",
  "winit",
+]
+
+[[package]]
+name = "velox-devtools"
+version = "0.1.0"
+dependencies = [
+ "slotmap",
+ "velox-scene",
 ]
 
 [[package]]

@@ -1,5 +1,6 @@
 use slotmap::SlotMap;
 
+use crate::accessibility::{AccessibilityNode, AccessibilityTreeNode, AccessibilityTreeSnapshot};
 use crate::event::KeyEvent;
 use crate::event_handler::{EventContext, EventHandler};
 use crate::geometry::{Point, Rect};
@@ -19,6 +20,7 @@ pub(crate) struct NodeData {
     pub(crate) painter: Option<Box<dyn Painter>>,
     pub(crate) layout: Option<Box<dyn Layout>>,
     pub(crate) event_handler: Option<Box<dyn EventHandler>>,
+    pub(crate) accessibility: Option<AccessibilityNode>,
 }
 
 impl NodeData {
@@ -34,6 +36,7 @@ impl NodeData {
             painter: None,
             layout: None,
             event_handler: None,
+            accessibility: None,
         }
     }
 }
@@ -49,11 +52,19 @@ pub struct EventDispatchResult {
 pub struct NodeTree {
     nodes: SlotMap<NodeId, NodeData>,
     root: Option<NodeId>,
+    invalidation_regions: Vec<Rect>,
 }
 
 impl NodeTree {
     pub fn new() -> Self {
         Self::default()
+    }
+
+    fn record_invalidation(&mut self, rect: Rect) {
+        if rect.width <= 0.0 || rect.height <= 0.0 {
+            return;
+        }
+        self.invalidation_regions.push(rect);
     }
 
     pub fn insert(&mut self, parent: Option<NodeId>) -> NodeId {
@@ -64,6 +75,7 @@ impl NodeTree {
                 if let Some(parent_node) = self.nodes.get_mut(parent_id) {
                     parent_node.children.push(id);
                 }
+                self.mark_layout_dirty(parent_id);
             }
             None => {
                 if self.root.is_none() {
@@ -81,6 +93,7 @@ impl NodeTree {
         };
 
         let parent = node.parent;
+        let rect = node.rect;
         let children: Vec<NodeId> = node.children.clone();
 
         for child in children {
@@ -98,6 +111,7 @@ impl NodeTree {
         }
 
         self.nodes.remove(id);
+        self.record_invalidation(rect);
     }
 
     pub fn reparent(&mut self, id: NodeId, new_parent: NodeId) {
@@ -118,6 +132,7 @@ impl NodeTree {
         if let Some(parent_node) = self.nodes.get_mut(new_parent) {
             parent_node.children.push(id);
         }
+        self.mark_layout_dirty(new_parent);
     }
 
     pub fn root(&self) -> Option<NodeId> {
@@ -153,10 +168,17 @@ impl NodeTree {
     }
 
     pub fn set_rect(&mut self, id: NodeId, rect: Rect) {
-        if let Some(node) = self.nodes.get_mut(id) {
-            node.rect = rect;
-            node.paint_dirty = true;
+        let Some(node) = self.nodes.get_mut(id) else {
+            return;
+        };
+        if node.rect == rect {
+            return;
         }
+        let previous = node.rect;
+        node.rect = rect;
+        node.paint_dirty = true;
+        self.record_invalidation(previous);
+        self.record_invalidation(rect);
     }
 
     pub fn rect(&self, id: NodeId) -> Option<Rect> {
@@ -164,10 +186,15 @@ impl NodeTree {
     }
 
     pub fn set_visible(&mut self, id: NodeId, visible: bool) {
-        if let Some(node) = self.nodes.get_mut(id) {
-            node.visible = visible;
-            node.paint_dirty = true;
-        }
+        let rect = match self.nodes.get_mut(id) {
+            Some(node) if node.visible != visible => {
+                node.visible = visible;
+                node.paint_dirty = true;
+                node.rect
+            }
+            _ => return,
+        };
+        self.record_invalidation(rect);
     }
 
     pub fn is_visible(&self, id: NodeId) -> Option<bool> {
@@ -184,24 +211,119 @@ impl NodeTree {
         self.nodes.get(id).map(|n| n.hit_test_transparent)
     }
 
+    pub fn is_layout_dirty(&self, id: NodeId) -> Option<bool> {
+        self.nodes.get(id).map(|n| n.layout_dirty)
+    }
+
+    pub fn is_paint_dirty(&self, id: NodeId) -> Option<bool> {
+        self.nodes.get(id).map(|n| n.paint_dirty)
+    }
+
+    pub fn set_accessibility(&mut self, id: NodeId, accessibility: AccessibilityNode) {
+        let rect = match self.nodes.get_mut(id) {
+            Some(node) => {
+                node.accessibility = Some(accessibility);
+                node.rect
+            }
+            None => return,
+        };
+        self.record_invalidation(rect);
+    }
+
+    pub fn clear_accessibility(&mut self, id: NodeId) {
+        let rect = match self.nodes.get_mut(id) {
+            Some(node) => {
+                node.accessibility = None;
+                node.rect
+            }
+            None => return,
+        };
+        self.record_invalidation(rect);
+    }
+
+    pub fn accessibility(&self, id: NodeId) -> Option<&AccessibilityNode> {
+        self.nodes.get(id).and_then(|n| n.accessibility.as_ref())
+    }
+
+    pub fn invalidation_regions(&self) -> &[Rect] {
+        &self.invalidation_regions
+    }
+
+    pub fn drain_invalidation_regions(&mut self) -> Vec<Rect> {
+        std::mem::take(&mut self.invalidation_regions)
+    }
+
+    pub fn build_accessibility_tree(&self, focused: Option<NodeId>) -> AccessibilityTreeSnapshot {
+        let Some(root_id) = self.root else {
+            return AccessibilityTreeSnapshot::default();
+        };
+        let roots = self.build_a11y_subtree(root_id, focused);
+        AccessibilityTreeSnapshot { roots }
+    }
+
+    fn build_a11y_subtree(
+        &self,
+        id: NodeId,
+        focused: Option<NodeId>,
+    ) -> Vec<AccessibilityTreeNode> {
+        let Some(node) = self.nodes.get(id) else {
+            return Vec::new();
+        };
+        if !node.visible {
+            return Vec::new();
+        }
+
+        let children: Vec<AccessibilityTreeNode> = node
+            .children
+            .iter()
+            .flat_map(|&child_id| self.build_a11y_subtree(child_id, focused))
+            .collect();
+
+        if let Some(a11y) = &node.accessibility {
+            vec![AccessibilityTreeNode {
+                id,
+                role: a11y.role,
+                label: a11y.label.clone(),
+                value: a11y.value.clone(),
+                disabled: a11y.disabled,
+                rect: node.rect,
+                focused: focused == Some(id),
+                children,
+            }]
+        } else if !children.is_empty() {
+            children
+        } else {
+            Vec::new()
+        }
+    }
+
     pub fn mark_layout_dirty(&mut self, id: NodeId) {
         let mut current = Some(id);
         while let Some(cid) = current {
-            match self.nodes.get_mut(cid) {
+            let (next, invalidated) = match self.nodes.get_mut(cid) {
                 Some(node) if node.layout_dirty => break,
                 Some(node) => {
                     node.layout_dirty = true;
-                    current = node.parent;
+                    (node.parent, Some(node.rect))
                 }
                 None => break,
+            };
+            if let Some(rect) = invalidated {
+                self.record_invalidation(rect);
             }
+            current = next;
         }
     }
 
     pub fn mark_paint_dirty(&mut self, id: NodeId) {
-        if let Some(node) = self.nodes.get_mut(id) {
-            node.paint_dirty = true;
-        }
+        let rect = match self.nodes.get_mut(id) {
+            Some(node) if !node.paint_dirty => {
+                node.paint_dirty = true;
+                node.rect
+            }
+            _ => return,
+        };
+        self.record_invalidation(rect);
     }
 
     pub fn clear_dirty(&mut self, id: NodeId) {
@@ -212,10 +334,15 @@ impl NodeTree {
     }
 
     pub fn set_painter(&mut self, id: NodeId, painter: impl Painter + 'static) {
-        if let Some(node) = self.nodes.get_mut(id) {
-            node.painter = Some(Box::new(painter));
-            node.paint_dirty = true;
-        }
+        let rect = match self.nodes.get_mut(id) {
+            Some(node) => {
+                node.painter = Some(Box::new(painter));
+                node.paint_dirty = true;
+                node.rect
+            }
+            None => return,
+        };
+        self.record_invalidation(rect);
     }
 
     pub fn run_paint(&mut self, commands: &mut CommandList) {
@@ -256,10 +383,15 @@ impl NodeTree {
     }
 
     pub fn set_layout(&mut self, id: NodeId, layout: impl Layout + 'static) {
-        if let Some(node) = self.nodes.get_mut(id) {
-            node.layout = Some(Box::new(layout));
-            node.layout_dirty = true;
-        }
+        let rect = match self.nodes.get_mut(id) {
+            Some(node) => {
+                node.layout = Some(Box::new(layout));
+                node.layout_dirty = true;
+                node.rect
+            }
+            None => return,
+        };
+        self.record_invalidation(rect);
     }
 
     pub fn run_layout(&mut self) {
@@ -308,7 +440,8 @@ impl NodeTree {
     }
 
     pub fn dispatch_key_event(&mut self, id: NodeId, event: &KeyEvent) -> bool {
-        self.dispatch_key_event_with_context(id, event, None).consumed
+        self.dispatch_key_event_with_context(id, event, None)
+            .consumed
     }
 
     pub fn dispatch_key_event_with_context(

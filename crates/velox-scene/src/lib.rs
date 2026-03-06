@@ -14,6 +14,11 @@ pub use layout::{Direction, Layout, PaddingLayout, StackLayout};
 pub use paint::{Color, CommandList, GlyphUpload, PaintCommand, PositionedGlyph};
 pub use painter::Painter;
 
+mod accessibility;
+pub use accessibility::{
+    AccessibilityNode, AccessibilityRole, AccessibilityTreeNode, AccessibilityTreeSnapshot,
+};
+
 mod focus;
 mod hit_test;
 mod overlay;
