@@ -13,3 +13,4 @@ velox-text = { workspace = true }
 velox-window = { workspace = true }
 wgpu = { workspace = true }
 winit = { workspace = true }
+arboard = { workspace = true }

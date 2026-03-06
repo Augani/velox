@@ -25,6 +25,9 @@ pub(crate) struct VeloxHandler {
     pending_windows: Vec<WindowConfig>,
     setup: Option<Box<dyn FnOnce(&mut Scene)>>,
     initialized: bool,
+    current_modifiers: winit::keyboard::ModifiersState,
+    cursor_position: velox_scene::Point,
+    clipboard: Option<arboard::Clipboard>,
 }
 
 impl VeloxHandler {
@@ -44,6 +47,9 @@ impl VeloxHandler {
             pending_windows: window_configs,
             setup,
             initialized: false,
+            current_modifiers: winit::keyboard::ModifiersState::default(),
+            cursor_position: velox_scene::Point::new(0.0, 0.0),
+            clipboard: None,
         }
     }
 }
@@ -54,6 +60,7 @@ impl ApplicationHandler for VeloxHandler {
             return;
         }
         self.initialized = true;
+        self.clipboard = arboard::Clipboard::new().ok();
 
         let configs: Vec<WindowConfig> = self.pending_windows.drain(..).collect();
         if configs.is_empty() {
@@ -173,6 +180,74 @@ impl ApplicationHandler for VeloxHandler {
                                 event_loop.exit();
                             }
                             _ => {}
+                        }
+                    }
+                }
+            }
+            WindowEvent::KeyboardInput { event, .. } => {
+                if !event.state.is_pressed() {
+                    return;
+                }
+                let Some(velox_key) = crate::key_convert::convert_key(&event.logical_key) else {
+                    return;
+                };
+                let modifiers = crate::key_convert::convert_modifiers(self.current_modifiers);
+
+                if self.shortcuts.handle_key_event(velox_key, modifiers) {
+                    return;
+                }
+
+                if let Some(ws) = self.windows.get_mut(&velox_id) {
+                    if let Some(focused) = ws.scene.focus().focused() {
+                        let text = event.text.as_ref().map(|t| t.to_string());
+                        let key_event = velox_scene::KeyEvent {
+                            key: velox_key,
+                            modifiers,
+                            state: crate::key_convert::convert_element_state(event.state),
+                            text,
+                        };
+                        ws.scene
+                            .tree_mut()
+                            .dispatch_key_event(focused, &key_event);
+                    }
+                }
+            }
+            WindowEvent::ModifiersChanged(mods) => {
+                self.current_modifiers = mods.state();
+            }
+            WindowEvent::CursorMoved { position, .. } => {
+                self.cursor_position =
+                    velox_scene::Point::new(position.x as f32, position.y as f32);
+            }
+            WindowEvent::MouseInput { state, button, .. } => {
+                if state == winit::event::ElementState::Pressed
+                    && button == winit::event::MouseButton::Left
+                {
+                    if let Some(ws) = self.windows.get_mut(&velox_id) {
+                        let point = self.cursor_position;
+                        if let Some(hit_id) = ws.scene.hit_test(point) {
+                            ws.scene.focus_mut().request_focus(hit_id);
+                            let node_rect = ws
+                                .scene
+                                .tree()
+                                .rect(hit_id)
+                                .unwrap_or(velox_scene::Rect::zero());
+                            let local_pos = velox_scene::Point::new(
+                                point.x - node_rect.x,
+                                point.y - node_rect.y,
+                            );
+                            let mouse_event = velox_scene::MouseEvent {
+                                position: local_pos,
+                                button: velox_scene::MouseButton::Left,
+                                state: velox_scene::ButtonState::Pressed,
+                                click_count: 1,
+                                modifiers: crate::key_convert::convert_modifiers(
+                                    self.current_modifiers,
+                                ),
+                            };
+                            ws.scene
+                                .tree_mut()
+                                .dispatch_mouse_event(hit_id, &mouse_event);
                         }
                     }
                 }
