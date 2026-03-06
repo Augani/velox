@@ -8,6 +8,8 @@ members = [
     "crates/velox-window",
     "crates/velox-app",
     "crates/velox-scene",
+    "crates/velox-text",
+    "crates/velox-render",
 ]
 
 [workspace.package]
@@ -24,6 +26,13 @@ velox-runtime = { path = "crates/velox-runtime" }
 velox-window = { path = "crates/velox-window" }
 velox-app = { path = "crates/velox-app" }
 velox-scene = { path = "crates/velox-scene" }
+velox-text = { path = "crates/velox-text" }
+velox-render = { path = "crates/velox-render" }
 winit = "0.30"
 slotmap = "1"
 tokio = { version = "1", features = ["rt-multi-thread", "time", "sync"] }
+cosmic-text = "0.12"
+wgpu = "24"
+pollster = "0.4"
+bytemuck = { version = "1", features = ["derive"] }
+bitflags = "2"
