@@ -19,6 +19,15 @@ impl Color {
 }
 
 #[derive(Debug, Clone)]
+pub struct PositionedGlyph {
+    pub cache_key: cosmic_text::CacheKey,
+    pub x: f32,
+    pub y: f32,
+    pub width: f32,
+    pub height: f32,
+}
+
+#[derive(Debug, Clone)]
 pub enum PaintCommand {
     FillRect {
         rect: Rect,
@@ -28,6 +37,10 @@ pub enum PaintCommand {
         rect: Rect,
         color: Color,
         width: f32,
+    },
+    DrawGlyphs {
+        glyphs: Vec<PositionedGlyph>,
+        color: Color,
     },
     PushClip(Rect),
     PopClip,
@@ -51,6 +64,11 @@ impl CommandList {
     pub fn stroke_rect(&mut self, rect: Rect, color: Color, width: f32) {
         self.commands
             .push(PaintCommand::StrokeRect { rect, color, width });
+    }
+
+    pub fn draw_glyphs(&mut self, glyphs: Vec<PositionedGlyph>, color: Color) {
+        self.commands
+            .push(PaintCommand::DrawGlyphs { glyphs, color });
     }
 
     pub fn push_clip(&mut self, rect: Rect) {

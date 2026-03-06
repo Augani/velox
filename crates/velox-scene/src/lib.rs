@@ -11,7 +11,7 @@ mod paint;
 mod painter;
 
 pub use layout::{Direction, Layout, PaddingLayout, StackLayout};
-pub use paint::{Color, CommandList, PaintCommand};
+pub use paint::{Color, CommandList, PaintCommand, PositionedGlyph};
 pub use painter::Painter;
 
 mod focus;

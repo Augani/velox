@@ -1,7 +1,7 @@
 use velox_scene::{Color, CommandList, PaintCommand};
 
 use crate::glyph_atlas::GlyphAtlas;
-use crate::glyph_renderer::GlyphRenderer;
+use crate::glyph_renderer::{GlyphQuad, GlyphRenderer};
 use crate::gpu::GpuContext;
 use crate::rect_renderer::{RectData, RectRenderer};
 use crate::surface::WindowSurface;
@@ -27,6 +27,7 @@ impl Renderer {
         atlas: &mut GlyphAtlas,
     ) -> Result<(), wgpu::SurfaceError> {
         let mut rects = Vec::new();
+        let mut glyph_quads = Vec::new();
 
         for cmd in commands.commands() {
             match cmd {
@@ -71,12 +72,31 @@ impl Renderer {
                         color: c,
                     });
                 }
+                PaintCommand::DrawGlyphs { glyphs, color } => {
+                    let c = color_to_f32(color);
+                    for glyph in glyphs {
+                        if let Some(region) = atlas.get(&glyph.cache_key) {
+                            let uv = atlas.uv(region);
+                            glyph_quads.push(GlyphQuad {
+                                x: glyph.x,
+                                y: glyph.y,
+                                width: glyph.width,
+                                height: glyph.height,
+                                uv,
+                                color: c,
+                            });
+                        }
+                    }
+                }
                 PaintCommand::PushClip(_) | PaintCommand::PopClip => {}
             }
         }
 
         self.rect_renderer
             .prepare(gpu, surface.width(), surface.height(), &rects);
+
+        self.glyph_renderer
+            .prepare(gpu, surface.width(), surface.height(), &glyph_quads);
 
         if atlas.is_dirty() {
             self.glyph_renderer.upload_atlas(gpu, atlas);
