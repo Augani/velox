@@ -7,6 +7,7 @@ use winit::event_loop::ActiveEventLoop;
 use velox_render::{GlyphAtlas, GpuContext, Renderer, WindowSurface};
 use velox_runtime::Runtime;
 use velox_scene::{Scene, ShortcutRegistry};
+use velox_style::ThemeManager;
 use velox_window::{WindowConfig, WindowId, WindowManager};
 
 struct WindowState {
@@ -30,6 +31,8 @@ pub(crate) struct VeloxHandler {
     current_modifiers: winit::keyboard::ModifiersState,
     cursor_position: velox_scene::Point,
     clipboard: Option<arboard::Clipboard>,
+    theme_manager: Option<ThemeManager>,
+    last_theme_version: Option<u64>,
 }
 
 impl VeloxHandler {
@@ -37,7 +40,9 @@ impl VeloxHandler {
         runtime: Runtime,
         window_configs: Vec<WindowConfig>,
         setup: Option<Box<dyn FnOnce(&mut Scene)>>,
+        theme_manager: Option<ThemeManager>,
     ) -> Self {
+        let last_theme_version = theme_manager.as_ref().map(ThemeManager::version);
         Self {
             runtime,
             window_manager: WindowManager::new(),
@@ -52,6 +57,8 @@ impl VeloxHandler {
             current_modifiers: winit::keyboard::ModifiersState::default(),
             cursor_position: velox_scene::Point::new(0.0, 0.0),
             clipboard: None,
+            theme_manager,
+            last_theme_version,
         }
     }
 
@@ -79,6 +86,23 @@ impl VeloxHandler {
     fn clipboard_write_text(&mut self, text: String) {
         if let Some(clipboard) = self.clipboard.as_mut() {
             let _ = clipboard.set_text(text);
+        }
+    }
+
+    fn sync_theme_updates(&mut self) {
+        let Some(theme_manager) = self.theme_manager.as_ref() else {
+            return;
+        };
+
+        let version = theme_manager.version();
+        if self.last_theme_version == Some(version) {
+            return;
+        }
+        self.last_theme_version = Some(version);
+
+        for ws in self.windows.values_mut() {
+            ws.needs_redraw = true;
+            ws.scene_dirty = true;
         }
     }
 }
@@ -323,6 +347,7 @@ impl ApplicationHandler for VeloxHandler {
 
     fn about_to_wait(&mut self, _event_loop: &ActiveEventLoop) {
         self.runtime.flush();
+        self.sync_theme_updates();
         self.request_pending_redraws();
     }
 }

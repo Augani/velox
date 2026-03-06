@@ -32,6 +32,10 @@ impl ThemeManager {
     pub fn subscribe(&self, callback: impl Fn(&Theme) + 'static) -> Subscription {
         self.active.subscribe(callback)
     }
+
+    pub fn version(&self) -> u64 {
+        self.active.version()
+    }
 }
 
 impl Default for ThemeManager {
@@ -77,5 +81,13 @@ mod tests {
 
         manager.set_theme(Theme::light());
         assert_eq!(notifications.get(), 0);
+    }
+
+    #[test]
+    fn version_increments_on_change() {
+        let manager = ThemeManager::default();
+        let initial = manager.version();
+        manager.set_theme(Theme::dark());
+        assert!(manager.version() > initial);
     }
 }

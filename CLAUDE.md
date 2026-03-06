@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Velox is a high-performance Rust desktop framework and runtime for building large, complex, responsive desktop applications. The design is informed by Telegram Desktop's architecture patterns, translated into idiomatic Rust.
 
-**Status:** Phase 2 complete (scene + layout + invalidation). See `rust_desktop_framework_runtime_from_tdesktop.md` for the full design document.
+**Status:** Phase 5 complete (runtime, scene, text/input, rendering, style/theming). See `rust_desktop_framework_runtime_from_tdesktop.md` for the full design document.
 
 ## Build Commands
 
@@ -20,7 +20,7 @@ cargo run -p velox --example demo    # Run multi-window demo
 
 ## Crate Architecture
 
-### Implemented (Phase 1 + Phase 2)
+### Implemented (Phase 1 - Phase 5)
 
 ```
 crates/
@@ -31,15 +31,15 @@ crates/
   velox-platform/ # PlatformPower/App/Clipboard traits + StubPlatform
   velox-window/   # WindowConfig, WindowId, ManagedWindow, WindowManager
   velox-scene/    # Retained node tree, layout, paint commands, hit testing, focus, overlays
+  velox-text/     # TextBuffer, EditableText, selection, cursor geometry, undo/redo, rasterization
+  velox-render/   # GPU context, surfaces, atlas-backed glyph rendering, clip-aware scissor rendering
+  velox-style/    # Typed theme tokens, palette/theme manager, build-time token generation, style DSL macro
 ```
 
-### Planned (Phase 3+)
+### Planned (Phase 6+)
 
 ```
 crates/
-  velox-render/    # GPU abstraction, surfaces, atlases, fallback paths
-  velox-text/      # Shaping, bidi, IME, selection, glyph caching
-  velox-style/     # Typed design tokens, theming, palette
   velox-animation/ # Frame-synced animations, power-aware transitions
   velox-list/      # Virtualized lists/grids, prefetch, visibility hooks
   velox-media/     # Image/video decode pipeline, visibility-based pause
@@ -81,9 +81,9 @@ All spawned tasks support cancellation, ownership binding, priority hints.
 
 1. Runtime + window shell (event loop, schedulers, lifetime management) -- DONE
 2. Scene + layout + invalidation -- DONE
-3. Text + input + custom painting
+3. Text + input + custom painting -- DONE
 4. Virtualized collections + media
-5. Style codegen + theming
+5. Style codegen + theming -- DONE
 6. Accessibility + devtools
 
 ## Key Patterns to Follow

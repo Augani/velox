@@ -1,4 +1,5 @@
 use velox_app::App;
+use velox_style::{Theme, ThemeManager};
 use velox_window::WindowConfig;
 
 #[test]
@@ -26,4 +27,12 @@ fn app_builder_multi_window() {
 fn app_defaults() {
     let app = App::new();
     assert_eq!(app.window_configs().len(), 0);
+}
+
+#[test]
+fn app_builder_accepts_theme_manager() {
+    let app = App::new()
+        .theme_manager(ThemeManager::new(Theme::generated_default()))
+        .window(WindowConfig::new("main").title("Main"));
+    assert_eq!(app.window_configs().len(), 1);
 }

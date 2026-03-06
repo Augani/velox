@@ -10,14 +10,14 @@ use velox::style::{Theme, ThemeColor, ThemeManager};
 
 struct ThemeDemoState {
     manager: ThemeManager,
-    dark: bool,
+    alternate: bool,
 }
 
 impl ThemeDemoState {
-    fn new() -> Self {
+    fn new(manager: ThemeManager) -> Self {
         Self {
-            manager: ThemeManager::new(Theme::light()),
-            dark: false,
+            manager,
+            alternate: false,
         }
     }
 
@@ -26,11 +26,11 @@ impl ThemeDemoState {
     }
 
     fn toggle_theme(&mut self) {
-        self.dark = !self.dark;
-        let next = if self.dark {
-            Theme::dark()
+        self.alternate = !self.alternate;
+        let next = if self.alternate {
+            alternate_theme()
         } else {
-            Theme::light()
+            Theme::generated_default()
         };
         self.manager.set_theme(next);
     }
@@ -114,21 +114,44 @@ fn to_scene_color(color: ThemeColor) -> Color {
     Color::rgba(color.r, color.g, color.b, color.a)
 }
 
+fn alternate_theme() -> Theme {
+    velox_style::theme! {
+        name: "oceanic",
+        palette: {
+            background: [17, 26, 33, 255],
+            surface: [24, 36, 46, 255],
+            surface_alt: [34, 47, 58, 255],
+            text_primary: [225, 238, 246, 255],
+            text_muted: [150, 172, 187, 255],
+            accent: [92, 214, 206, 255],
+            accent_hover: [121, 224, 217, 255],
+            selection: [92, 214, 206, 92],
+        },
+        space: { xs: 2.0, sm: 4.0, md: 8.0, lg: 12.0, xl: 16.0 },
+        radius: { sm: 4.0, md: 8.0, lg: 12.0 },
+        typography: { body: 14.0, heading: 18.0, mono: 13.0 },
+    }
+}
+
 fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let manager = ThemeManager::new(Theme::generated_default());
+    let setup_manager = manager.clone();
+
     App::new()
         .name("Phase 5 Demo")
+        .theme_manager(manager)
         .window(
             WindowConfig::new("main")
                 .title("Velox — Theme Tokens")
                 .size(900, 520),
         )
-        .setup(|scene| {
+        .setup(move |scene| {
             let root = scene.tree_mut().insert(None);
             scene
                 .tree_mut()
                 .set_rect(root, Rect::new(0.0, 0.0, 900.0, 520.0));
 
-            let shared = Rc::new(RefCell::new(ThemeDemoState::new()));
+            let shared = Rc::new(RefCell::new(ThemeDemoState::new(setup_manager.clone())));
 
             scene
                 .tree_mut()

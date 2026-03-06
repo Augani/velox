@@ -1,0 +1,28 @@
+name = "generated-default"
+
+[palette]
+background = [248, 249, 251, 255]
+surface = [255, 255, 255, 255]
+surface_alt = [238, 242, 247, 255]
+text_primary = [23, 27, 34, 255]
+text_muted = [94, 105, 120, 255]
+accent = [38, 112, 255, 255]
+accent_hover = [26, 98, 240, 255]
+selection = [38, 112, 255, 78]
+
+[space]
+xs = 2.0
+sm = 4.0
+md = 8.0
+lg = 12.0
+xl = 16.0
+
+[radius]
+sm = 4.0
+md = 8.0
+lg = 12.0
+
+[typography]
+body = 14.0
+heading = 18.0
+mono = 13.0

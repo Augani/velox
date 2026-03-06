@@ -29,6 +29,10 @@ impl Theme {
             typography: TypographyTokens::desktop_defaults(),
         }
     }
+
+    pub fn generated_default() -> Self {
+        crate::generated_default_theme()
+    }
 }
 
 impl Default for Theme {
