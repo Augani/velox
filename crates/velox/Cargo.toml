@@ -21,3 +21,6 @@ name = "phase1_smoke"
 
 [[example]]
 name = "phase3_demo"
+
+[[example]]
+name = "phase4_demo"

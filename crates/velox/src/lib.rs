@@ -12,7 +12,10 @@ pub mod prelude {
     pub use velox_reactive::{Batch, Computed, Event, Signal, Subscription, SubscriptionBag};
     pub use velox_render::{GpuContext, Renderer};
     pub use velox_runtime::{PowerClass, PowerPolicy};
-    pub use velox_scene::{NodeId, NodeTree, Point, Rect, Scene, Size};
-    pub use velox_text::{FontSystem, TextBuffer};
+    pub use velox_scene::{
+        EventContext, EventHandler, KeyEvent, MouseEvent, NodeId, NodeTree, Point, Rect, Scene,
+        Size,
+    };
+    pub use velox_text::{EditableText, FontSystem, TextBuffer, TextSelection};
     pub use velox_window::WindowConfig;
 }
