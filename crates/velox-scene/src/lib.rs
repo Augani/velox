@@ -17,6 +17,8 @@ pub use painter::Painter;
 mod focus;
 mod hit_test;
 mod overlay;
+mod scene;
 
 pub use focus::{FocusChange, FocusState};
 pub use overlay::{OverlayId, OverlayStack};
+pub use scene::Scene;
