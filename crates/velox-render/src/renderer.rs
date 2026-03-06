@@ -1,16 +1,21 @@
-use velox_scene::{Color, CommandList, PaintCommand, Rect};
+use velox_scene::{Color, CommandList, PaintCommand, Rect, TextureId};
 
 use crate::glyph_atlas::GlyphAtlas;
 use crate::glyph_renderer::{GlyphQuad, GlyphRenderer};
 use crate::gpu::GpuContext;
+use crate::image_renderer::{ImageQuad, ImageRenderer};
 use crate::rect_renderer::{RectData, RectRenderer};
 use crate::surface::WindowSurface;
+use crate::texture_manager::TextureManager;
 
 pub struct Renderer {
     rect_renderer: RectRenderer,
     glyph_renderer: GlyphRenderer,
+    image_renderer: ImageRenderer,
+    texture_manager: TextureManager,
     rect_scratch: Vec<RectData>,
     glyph_scratch: Vec<GlyphQuad>,
+    image_scratch: Vec<(TextureId, ImageQuad)>,
     cached_command_epoch: Option<u64>,
     cached_surface_size: Option<(u32, u32)>,
 }
@@ -20,11 +25,18 @@ impl Renderer {
         Self {
             rect_renderer: RectRenderer::new(gpu, target_format),
             glyph_renderer: GlyphRenderer::new(gpu, target_format),
+            image_renderer: ImageRenderer::new(gpu, target_format),
+            texture_manager: TextureManager::new(256 * 1024 * 1024),
             rect_scratch: Vec::new(),
             glyph_scratch: Vec::new(),
+            image_scratch: Vec::new(),
             cached_command_epoch: None,
             cached_surface_size: None,
         }
+    }
+
+    pub fn texture_manager(&mut self) -> &mut TextureManager {
+        &mut self.texture_manager
     }
 
     pub fn render(
@@ -48,6 +60,7 @@ impl Renderer {
         if commands_changed || surface_changed {
             self.rect_scratch.clear();
             self.glyph_scratch.clear();
+            self.image_scratch.clear();
             let mut clip_stack: Vec<Option<Rect>> = Vec::new();
 
             for cmd in commands.commands() {
@@ -158,6 +171,43 @@ impl Renderer {
                             }
                         }
                     }
+                    PaintCommand::DrawImage {
+                        texture_id,
+                        src_rect,
+                        dst_rect,
+                        opacity,
+                    } => {
+                        let clip = match clip_stack.last().copied() {
+                            Some(None) => continue,
+                            Some(Some(active)) => {
+                                let Some(clip) =
+                                    rect_to_scissor(active, surface.width(), surface.height())
+                                else {
+                                    continue;
+                                };
+                                Some(clip)
+                            }
+                            None => None,
+                        };
+
+                        self.image_scratch.push((
+                            *texture_id,
+                            ImageQuad {
+                                x: dst_rect.x,
+                                y: dst_rect.y,
+                                width: dst_rect.width,
+                                height: dst_rect.height,
+                                uv: [
+                                    src_rect.x,
+                                    src_rect.y,
+                                    src_rect.x + src_rect.width,
+                                    src_rect.y + src_rect.height,
+                                ],
+                                opacity: *opacity,
+                                clip,
+                            },
+                        ));
+                    }
                     PaintCommand::PushClip(rect) => {
                         let next_clip = match clip_stack.last().copied() {
                             None => Some(*rect),
@@ -177,14 +227,20 @@ impl Renderer {
             self.rect_renderer
                 .prepare(gpu, surface.width(), surface.height(), &self.rect_scratch);
 
-            self.glyph_renderer
-                .prepare(gpu, surface.width(), surface.height(), &self.glyph_scratch);
+            self.glyph_renderer.prepare(
+                gpu,
+                surface.width(),
+                surface.height(),
+                &self.glyph_scratch,
+            );
         }
 
         if atlas.is_dirty() {
             self.glyph_renderer.upload_atlas(gpu, atlas);
             atlas.clear_dirty();
         }
+
+        self.texture_manager.tick_frame();
 
         let output = surface.surface().get_current_texture()?;
         let view = output
@@ -221,12 +277,92 @@ impl Renderer {
             self.glyph_renderer.render(&mut render_pass);
         }
 
+        self.render_image_batches(gpu, surface, &view, &mut encoder);
+
         gpu.queue.submit(std::iter::once(encoder.finish()));
         output.present();
         self.cached_command_epoch = Some(command_epoch);
         self.cached_surface_size = Some(surface_size);
 
         Ok(())
+    }
+
+    fn render_image_batches(
+        &mut self,
+        gpu: &GpuContext,
+        surface: &WindowSurface,
+        target_view: &wgpu::TextureView,
+        encoder: &mut wgpu::CommandEncoder,
+    ) {
+        if self.image_scratch.is_empty() {
+            return;
+        }
+
+        let mut current_texture: Option<TextureId> = None;
+        let mut batch: Vec<ImageQuad> = Vec::new();
+        let scratch = std::mem::take(&mut self.image_scratch);
+
+        for (tex_id, quad) in &scratch {
+            if current_texture != Some(*tex_id) {
+                if !batch.is_empty() {
+                    self.flush_image_batch(gpu, surface, target_view, encoder, &batch);
+                    batch.clear();
+                }
+
+                if let Some(view) = self.texture_manager.get_view(*tex_id) {
+                    self.image_renderer.bind_texture(gpu, view);
+                    current_texture = Some(*tex_id);
+                } else {
+                    current_texture = None;
+                    continue;
+                }
+            }
+
+            batch.push(ImageQuad {
+                x: quad.x,
+                y: quad.y,
+                width: quad.width,
+                height: quad.height,
+                uv: quad.uv,
+                opacity: quad.opacity,
+                clip: quad.clip,
+            });
+        }
+
+        if !batch.is_empty() {
+            self.flush_image_batch(gpu, surface, target_view, encoder, &batch);
+        }
+
+        self.image_scratch = scratch;
+    }
+
+    fn flush_image_batch(
+        &mut self,
+        gpu: &GpuContext,
+        surface: &WindowSurface,
+        target_view: &wgpu::TextureView,
+        encoder: &mut wgpu::CommandEncoder,
+        batch: &[ImageQuad],
+    ) {
+        self.image_renderer
+            .prepare(gpu, surface.width(), surface.height(), batch);
+
+        let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+            label: Some("velox_image_pass"),
+            color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                view: target_view,
+                resolve_target: None,
+                ops: wgpu::Operations {
+                    load: wgpu::LoadOp::Load,
+                    store: wgpu::StoreOp::Store,
+                },
+            })],
+            depth_stencil_attachment: None,
+            occlusion_query_set: None,
+            timestamp_writes: None,
+        });
+
+        self.image_renderer.render(&mut pass);
     }
 }
 

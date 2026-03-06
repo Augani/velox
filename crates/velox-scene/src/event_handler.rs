@@ -1,4 +1,4 @@
-use crate::event::{KeyEvent, MouseEvent};
+use crate::event::{KeyEvent, MouseEvent, ScrollEvent};
 use crate::geometry::Rect;
 
 pub struct EventContext {
@@ -51,6 +51,11 @@ pub trait EventHandler: 'static {
     fn handle_key(&mut self, event: &KeyEvent, ctx: &mut EventContext) -> bool;
 
     fn handle_mouse(&mut self, event: &MouseEvent, ctx: &mut EventContext) -> bool {
+        let _ = (event, ctx);
+        false
+    }
+
+    fn handle_scroll(&mut self, event: &ScrollEvent, ctx: &mut EventContext) -> bool {
         let _ = (event, ctx);
         false
     }

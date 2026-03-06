@@ -1,14 +1,18 @@
 use std::collections::HashMap;
+use std::time::Instant;
 
 use winit::application::ApplicationHandler;
 use winit::event::WindowEvent;
 use winit::event_loop::ActiveEventLoop;
 
+use velox_animation::AnimationManager;
 use velox_render::{GlyphAtlas, GpuContext, Renderer, WindowSurface};
 use velox_runtime::Runtime;
 use velox_scene::{Scene, ShortcutRegistry};
 use velox_style::ThemeManager;
 use velox_window::{WindowConfig, WindowId, WindowManager};
+
+type SetupFn = Box<dyn FnOnce(&mut Scene)>;
 
 struct WindowState {
     scene: Scene,
@@ -26,20 +30,22 @@ pub(crate) struct VeloxHandler {
     glyph_atlas: GlyphAtlas,
     shortcuts: ShortcutRegistry,
     pending_windows: Vec<WindowConfig>,
-    setup: Option<Box<dyn FnOnce(&mut Scene)>>,
+    setup: Option<SetupFn>,
     initialized: bool,
     current_modifiers: winit::keyboard::ModifiersState,
     cursor_position: velox_scene::Point,
     clipboard: Option<arboard::Clipboard>,
     theme_manager: Option<ThemeManager>,
     last_theme_version: Option<u64>,
+    animation_manager: AnimationManager,
+    last_frame_time: Option<Instant>,
 }
 
 impl VeloxHandler {
     pub(crate) fn new(
         runtime: Runtime,
         window_configs: Vec<WindowConfig>,
-        setup: Option<Box<dyn FnOnce(&mut Scene)>>,
+        setup: Option<SetupFn>,
         theme_manager: Option<ThemeManager>,
     ) -> Self {
         let last_theme_version = theme_manager.as_ref().map(ThemeManager::version);
@@ -59,6 +65,8 @@ impl VeloxHandler {
             clipboard: None,
             theme_manager,
             last_theme_version,
+            animation_manager: AnimationManager::new(),
+            last_frame_time: None,
         }
     }
 
@@ -286,6 +294,15 @@ impl ApplicationHandler for VeloxHandler {
                     self.clipboard_write_text(text);
                 }
             }
+            WindowEvent::ScaleFactorChanged { scale_factor, .. } => {
+                if let Some(managed) = self.window_manager.get_window_mut(velox_id) {
+                    managed.set_scale_factor(scale_factor);
+                }
+                if let Some(ws) = self.windows.get_mut(&velox_id) {
+                    ws.needs_redraw = true;
+                    ws.scene_dirty = true;
+                }
+            }
             WindowEvent::ModifiersChanged(mods) => {
                 self.current_modifiers = mods.state();
             }
@@ -341,12 +358,63 @@ impl ApplicationHandler for VeloxHandler {
                     }
                 }
             }
+            WindowEvent::MouseWheel { delta, .. } => {
+                let (delta_x, delta_y) = match delta {
+                    winit::event::MouseScrollDelta::LineDelta(x, y) => (x * 40.0, y * 40.0),
+                    winit::event::MouseScrollDelta::PixelDelta(pos) => {
+                        (pos.x as f32, pos.y as f32)
+                    }
+                };
+                if let Some(ws) = self.windows.get_mut(&velox_id) {
+                    let point = self.cursor_position;
+                    if let Some(hit_id) = ws.scene.hit_test(point) {
+                        let scroll_event = velox_scene::ScrollEvent {
+                            delta_x,
+                            delta_y,
+                            modifiers: crate::key_convert::convert_modifiers(
+                                self.current_modifiers,
+                            ),
+                        };
+                        let result = ws
+                            .scene
+                            .tree_mut()
+                            .dispatch_scroll_event_with_context(hit_id, &scroll_event);
+                        if result.redraw_requested {
+                            ws.needs_redraw = true;
+                            ws.scene_dirty = true;
+                        }
+                    }
+                }
+            }
             _ => {}
         }
     }
 
     fn about_to_wait(&mut self, _event_loop: &ActiveEventLoop) {
         self.runtime.flush();
+
+        let now = Instant::now();
+        let dt = self
+            .last_frame_time
+            .map(|last| now.duration_since(last))
+            .unwrap_or_default();
+        self.last_frame_time = Some(now);
+
+        let policy = self.runtime.power_policy();
+        self.animation_manager.tick(dt, policy);
+
+        if self.animation_manager.has_running() {
+            for ws in self.windows.values_mut() {
+                ws.needs_redraw = true;
+                ws.scene_dirty = true;
+            }
+        }
+
+        let no_redraws = !self.windows.values().any(|ws| ws.needs_redraw);
+        if no_redraws && self.runtime.has_pending_idle() {
+            self.runtime.flush_idle();
+        }
+
         self.sync_theme_updates();
         self.request_pending_redraws();
     }

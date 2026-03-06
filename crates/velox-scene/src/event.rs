@@ -49,6 +49,13 @@ pub struct MouseEvent {
     pub modifiers: Modifiers,
 }
 
+#[derive(Debug, Clone, Copy)]
+pub struct ScrollEvent {
+    pub delta_x: f32,
+    pub delta_y: f32,
+    pub modifiers: Modifiers,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

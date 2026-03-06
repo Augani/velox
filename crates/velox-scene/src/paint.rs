@@ -1,5 +1,8 @@
 use crate::Rect;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct TextureId(pub u64);
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Color {
     pub r: u8,
@@ -42,6 +45,12 @@ pub enum PaintCommand {
         glyphs: Vec<PositionedGlyph>,
         color: Color,
     },
+    DrawImage {
+        texture_id: TextureId,
+        src_rect: Rect,
+        dst_rect: Rect,
+        opacity: f32,
+    },
     PushClip(Rect),
     PopClip,
 }
@@ -83,6 +92,22 @@ impl CommandList {
         self.bump_epoch();
         self.commands
             .push(PaintCommand::DrawGlyphs { glyphs, color });
+    }
+
+    pub fn draw_image(
+        &mut self,
+        texture_id: TextureId,
+        src_rect: Rect,
+        dst_rect: Rect,
+        opacity: f32,
+    ) {
+        self.bump_epoch();
+        self.commands.push(PaintCommand::DrawImage {
+            texture_id,
+            src_rect,
+            dst_rect,
+            opacity,
+        });
     }
 
     pub fn push_clip(&mut self, rect: Rect) {
@@ -213,6 +238,40 @@ mod tests {
                 assert_eq!(*width, 2.0);
             }
             _ => panic!("expected StrokeRect"),
+        }
+    }
+
+    #[test]
+    fn texture_id_equality() {
+        let a = TextureId(1);
+        let b = TextureId(1);
+        let c = TextureId(2);
+        assert_eq!(a, b);
+        assert_ne!(a, c);
+    }
+
+    #[test]
+    fn draw_image_command() {
+        let mut list = CommandList::new();
+        let tid = TextureId(42);
+        let src = Rect::new(0.0, 0.0, 64.0, 64.0);
+        let dst = Rect::new(10.0, 20.0, 128.0, 128.0);
+        list.draw_image(tid, src, dst, 0.8);
+
+        assert_eq!(list.commands().len(), 1);
+        match &list.commands()[0] {
+            PaintCommand::DrawImage {
+                texture_id,
+                src_rect,
+                dst_rect,
+                opacity,
+            } => {
+                assert_eq!(*texture_id, tid);
+                assert_eq!(*src_rect, src);
+                assert_eq!(*dst_rect, dst);
+                assert_eq!(*opacity, 0.8);
+            }
+            _ => panic!("expected DrawImage"),
         }
     }
 }

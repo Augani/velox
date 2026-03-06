@@ -1,4 +1,5 @@
 use std::future::Future;
+use std::time::Duration;
 
 pub struct IoExecutor {
     runtime: tokio::runtime::Runtime,
@@ -24,6 +25,10 @@ impl IoExecutor {
 
     pub fn handle(&self) -> tokio::runtime::Handle {
         self.runtime.handle().clone()
+    }
+
+    pub fn shutdown_timeout(&self) -> Duration {
+        Duration::from_secs(5)
     }
 }
 

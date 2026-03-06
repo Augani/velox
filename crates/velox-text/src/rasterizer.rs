@@ -1,6 +1,12 @@
-use cosmic_text::{CacheKey, SwashCache};
+use cosmic_text::{CacheKey, SwashCache, SwashContent};
 
 use crate::font_system::FontSystem;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum GlyphContentType {
+    Mask,
+    Color,
+}
 
 pub struct RasterizedGlyph {
     pub width: u32,
@@ -8,6 +14,13 @@ pub struct RasterizedGlyph {
     pub left: i32,
     pub top: i32,
     pub data: Vec<u8>,
+    pub content_type: GlyphContentType,
+}
+
+impl RasterizedGlyph {
+    pub fn is_color(&self) -> bool {
+        self.content_type == GlyphContentType::Color
+    }
 }
 
 pub struct GlyphRasterizer {
@@ -30,12 +43,17 @@ impl GlyphRasterizer {
             .swash_cache
             .get_image(font_system.inner_mut(), cache_key)
             .as_ref()?;
+        let content_type = match image.content {
+            SwashContent::Color => GlyphContentType::Color,
+            _ => GlyphContentType::Mask,
+        };
         Some(RasterizedGlyph {
             width: image.placement.width,
             height: image.placement.height,
             left: image.placement.left,
             top: image.placement.top,
             data: image.data.clone(),
+            content_type,
         })
     }
 }

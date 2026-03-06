@@ -11,7 +11,7 @@ mod paint;
 mod painter;
 
 pub use layout::{Direction, Layout, PaddingLayout, StackLayout};
-pub use paint::{Color, CommandList, GlyphUpload, PaintCommand, PositionedGlyph};
+pub use paint::{Color, CommandList, GlyphUpload, PaintCommand, PositionedGlyph, TextureId};
 pub use painter::Painter;
 
 mod accessibility;
@@ -35,5 +35,5 @@ pub use shortcut::{Key, KeyCombo, Modifiers, ShortcutId, ShortcutRegistry};
 mod event;
 mod event_handler;
 
-pub use event::{ButtonState, KeyEvent, KeyState, MouseButton, MouseEvent};
+pub use event::{ButtonState, KeyEvent, KeyState, MouseButton, MouseEvent, ScrollEvent};
 pub use event_handler::{EventContext, EventHandler};

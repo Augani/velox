@@ -1,0 +1,12 @@
+[package]
+name = "velox-media"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+velox-runtime = { workspace = true }
+velox-scene = { workspace = true }
+image = { workspace = true }
+tokio = { workspace = true }

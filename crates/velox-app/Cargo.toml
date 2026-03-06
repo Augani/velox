@@ -4,6 +4,7 @@ version.workspace = true
 edition.workspace = true
 
 [dependencies]
+velox-animation = { workspace = true }
 velox-reactive = { workspace = true }
 velox-platform = { workspace = true }
 velox-render = { workspace = true }

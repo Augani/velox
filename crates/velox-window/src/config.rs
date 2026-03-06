@@ -1,3 +1,10 @@
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
+pub enum DpiPolicy {
+    #[default]
+    System,
+    Fixed(f64),
+}
+
 #[derive(Debug, Clone)]
 pub struct WindowConfig {
     label: String,
@@ -8,6 +15,7 @@ pub struct WindowConfig {
     max_size: Option<(u32, u32)>,
     resizable: bool,
     decorations: bool,
+    dpi_policy: DpiPolicy,
 }
 
 impl WindowConfig {
@@ -21,6 +29,7 @@ impl WindowConfig {
             max_size: None,
             resizable: true,
             decorations: true,
+            dpi_policy: DpiPolicy::default(),
         }
     }
 
@@ -55,6 +64,11 @@ impl WindowConfig {
         self
     }
 
+    pub fn dpi_policy(mut self, policy: DpiPolicy) -> Self {
+        self.dpi_policy = policy;
+        self
+    }
+
     pub fn id_label(&self) -> &str {
         &self.label
     }
@@ -83,6 +97,10 @@ impl WindowConfig {
         self.decorations
     }
 
+    pub fn get_dpi_policy(&self) -> DpiPolicy {
+        self.dpi_policy
+    }
+
     pub fn to_window_attributes(&self) -> winit::window::WindowAttributes {
         let mut attrs = winit::window::WindowAttributes::default()
             .with_title(self.title.clone())
@@ -108,5 +126,22 @@ impl WindowConfig {
         }
 
         attrs
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn dpi_policy_default_is_system() {
+        let config = WindowConfig::new("test");
+        assert_eq!(config.get_dpi_policy(), DpiPolicy::System);
+    }
+
+    #[test]
+    fn dpi_policy_builder_fixed() {
+        let config = WindowConfig::new("test").dpi_policy(DpiPolicy::Fixed(2.0));
+        assert_eq!(config.get_dpi_policy(), DpiPolicy::Fixed(2.0));
     }
 }

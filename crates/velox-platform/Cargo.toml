@@ -4,3 +4,7 @@ version.workspace = true
 edition.workspace = true
 
 [dependencies]
+rfd = { workspace = true }
+notify-rust = { workspace = true }
+tray-icon = { workspace = true }
+muda = { workspace = true }

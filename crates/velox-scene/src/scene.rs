@@ -10,6 +10,7 @@ pub struct Scene {
     overlay_stack: OverlayStack,
     focus: FocusState,
     command_list: CommandList,
+    captured_pointer: Option<NodeId>,
 }
 
 impl Scene {
@@ -19,6 +20,7 @@ impl Scene {
             overlay_stack: OverlayStack::new(),
             focus: FocusState::new(),
             command_list: CommandList::new(),
+            captured_pointer: None,
         }
     }
 
@@ -63,7 +65,24 @@ impl Scene {
             .for_each_tree_mut(|tree| tree.run_paint(&mut self.command_list));
     }
 
+    pub fn capture_pointer(&mut self, node_id: NodeId) {
+        self.captured_pointer = Some(node_id);
+    }
+
+    pub fn release_pointer(&mut self) {
+        self.captured_pointer = None;
+    }
+
+    pub fn pointer_captured_by(&self) -> Option<NodeId> {
+        self.captured_pointer
+    }
+
     pub fn hit_test(&self, point: Point) -> Option<NodeId> {
+        if let Some(captured) = self.captured_pointer {
+            if self.tree.contains(captured) {
+                return Some(captured);
+            }
+        }
         if let Some((_overlay_id, node_id)) = self.overlay_stack.hit_test(point) {
             return Some(node_id);
         }
@@ -186,6 +205,61 @@ mod tests {
 
         scene.focus_mut().request_focus(root);
         assert_eq!(scene.focus().focused(), Some(root));
+    }
+
+    #[test]
+    fn pointer_capture_overrides_hit_test() {
+        let mut scene = Scene::new();
+        let root = scene.tree_mut().insert(None);
+        scene
+            .tree_mut()
+            .set_rect(root, Rect::new(0.0, 0.0, 500.0, 500.0));
+
+        let child = scene.tree_mut().insert(Some(root));
+        scene
+            .tree_mut()
+            .set_rect(child, Rect::new(0.0, 0.0, 100.0, 100.0));
+
+        scene.capture_pointer(child);
+        let hit = scene.hit_test(Point::new(400.0, 400.0));
+        assert_eq!(hit, Some(child));
+        assert_eq!(scene.pointer_captured_by(), Some(child));
+    }
+
+    #[test]
+    fn pointer_capture_release() {
+        let mut scene = Scene::new();
+        let root = scene.tree_mut().insert(None);
+        scene
+            .tree_mut()
+            .set_rect(root, Rect::new(0.0, 0.0, 500.0, 500.0));
+
+        scene.capture_pointer(root);
+        scene.release_pointer();
+        assert_eq!(scene.pointer_captured_by(), None);
+
+        let hit = scene.hit_test(Point::new(250.0, 250.0));
+        assert_eq!(hit, Some(root));
+    }
+
+    #[test]
+    fn pointer_capture_invalid_node_falls_through() {
+        let mut scene = Scene::new();
+        let root = scene.tree_mut().insert(None);
+        scene
+            .tree_mut()
+            .set_rect(root, Rect::new(0.0, 0.0, 500.0, 500.0));
+
+        let child = scene.tree_mut().insert(Some(root));
+        scene
+            .tree_mut()
+            .set_rect(child, Rect::new(0.0, 0.0, 100.0, 100.0));
+
+        scene.capture_pointer(child);
+        scene.tree_mut().remove(child);
+
+        let hit = scene.hit_test(Point::new(50.0, 50.0));
+        assert_eq!(hit, Some(root));
     }
 
     #[test]

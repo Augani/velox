@@ -67,13 +67,26 @@ impl ShelfPacker {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum GlyphFormat {
+    Alpha8,
+    Rgba8,
+}
+
 pub struct GlyphAtlas {
     packer: ShelfPacker,
     entries: HashMap<CacheKey, AtlasRegion>,
+    glyph_formats: HashMap<CacheKey, GlyphFormat>,
     texture_data: Vec<u8>,
     atlas_width: u32,
     atlas_height: u32,
     dirty: bool,
+    rgba_data: Vec<u8>,
+    rgba_width: u32,
+    rgba_height: u32,
+    rgba_packer: ShelfPacker,
+    rgba_entries: HashMap<CacheKey, AtlasRegion>,
+    rgba_dirty: bool,
 }
 
 impl GlyphAtlas {
@@ -81,10 +94,17 @@ impl GlyphAtlas {
         Self {
             packer: ShelfPacker::new(width, height),
             entries: HashMap::new(),
+            glyph_formats: HashMap::new(),
             texture_data: vec![0u8; (width * height) as usize],
             atlas_width: width,
             atlas_height: height,
             dirty: false,
+            rgba_data: vec![0u8; (width * height * 4) as usize],
+            rgba_width: width,
+            rgba_height: height,
+            rgba_packer: ShelfPacker::new(width, height),
+            rgba_entries: HashMap::new(),
+            rgba_dirty: false,
         }
     }
 
@@ -143,6 +163,76 @@ impl GlyphAtlas {
             (region.x + region.width) as f32 / w,
             (region.y + region.height) as f32 / h,
         ]
+    }
+
+    pub fn insert_rgba(
+        &mut self,
+        key: CacheKey,
+        w: u32,
+        h: u32,
+        data: &[u8],
+    ) -> Option<AtlasRegion> {
+        if let Some(existing) = self.rgba_entries.get(&key) {
+            return Some(*existing);
+        }
+
+        let region = self.rgba_packer.allocate(w, h)?;
+        let bytes_per_row = w as usize * 4;
+
+        for row in 0..h {
+            let src_start = (row as usize) * bytes_per_row;
+            let src_end = src_start + bytes_per_row;
+            let dst_start = ((region.y + row) as usize) * (self.rgba_width as usize * 4)
+                + (region.x as usize * 4);
+            let dst_end = dst_start + bytes_per_row;
+            if src_end <= data.len() && dst_end <= self.rgba_data.len() {
+                self.rgba_data[dst_start..dst_end].copy_from_slice(&data[src_start..src_end]);
+            }
+        }
+
+        self.rgba_entries.insert(key, region);
+        self.glyph_formats.insert(key, GlyphFormat::Rgba8);
+        self.rgba_dirty = true;
+        Some(region)
+    }
+
+    pub fn is_rgba(&self, key: &CacheKey) -> bool {
+        self.glyph_formats.get(key) == Some(&GlyphFormat::Rgba8)
+    }
+
+    pub fn get_rgba(&self, key: &CacheKey) -> Option<&AtlasRegion> {
+        self.rgba_entries.get(key)
+    }
+
+    pub fn rgba_uv(&self, region: &AtlasRegion) -> [f32; 4] {
+        let w = self.rgba_width as f32;
+        let h = self.rgba_height as f32;
+        [
+            region.x as f32 / w,
+            region.y as f32 / h,
+            (region.x + region.width) as f32 / w,
+            (region.y + region.height) as f32 / h,
+        ]
+    }
+
+    pub fn rgba_texture_data(&self) -> &[u8] {
+        &self.rgba_data
+    }
+
+    pub fn rgba_width(&self) -> u32 {
+        self.rgba_width
+    }
+
+    pub fn rgba_height(&self) -> u32 {
+        self.rgba_height
+    }
+
+    pub fn is_rgba_dirty(&self) -> bool {
+        self.rgba_dirty
+    }
+
+    pub fn clear_rgba_dirty(&mut self) {
+        self.rgba_dirty = false;
     }
 }
 

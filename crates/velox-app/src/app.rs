@@ -7,11 +7,13 @@ use winit::event_loop::EventLoop;
 
 use crate::handler::VeloxHandler;
 
+type SetupFn = Box<dyn FnOnce(&mut Scene)>;
+
 pub struct App {
     name: String,
     power_policy: PowerPolicy,
     window_configs: Vec<WindowConfig>,
-    setup: Option<Box<dyn FnOnce(&mut Scene)>>,
+    setup: Option<SetupFn>,
     theme_manager: Option<ThemeManager>,
 }
 
@@ -58,12 +60,8 @@ impl App {
     pub fn run(self) -> Result<(), Box<dyn std::error::Error>> {
         let event_loop = EventLoop::new()?;
         let runtime = Runtime::builder().power_policy(self.power_policy).build();
-        let mut handler = VeloxHandler::new(
-            runtime,
-            self.window_configs,
-            self.setup,
-            self.theme_manager,
-        );
+        let mut handler =
+            VeloxHandler::new(runtime, self.window_configs, self.setup, self.theme_manager);
         event_loop.run_app(&mut handler)?;
         Ok(())
     }

@@ -21,6 +21,8 @@ pub(crate) struct NodeData {
     pub(crate) layout: Option<Box<dyn Layout>>,
     pub(crate) event_handler: Option<Box<dyn EventHandler>>,
     pub(crate) accessibility: Option<AccessibilityNode>,
+    pub(crate) on_visible: Option<Box<dyn Fn(NodeId)>>,
+    pub(crate) on_hidden: Option<Box<dyn Fn(NodeId)>>,
 }
 
 impl NodeData {
@@ -37,6 +39,8 @@ impl NodeData {
             layout: None,
             event_handler: None,
             accessibility: None,
+            on_visible: None,
+            on_hidden: None,
         }
     }
 }
@@ -191,19 +195,50 @@ impl NodeTree {
     }
 
     pub fn set_visible(&mut self, id: NodeId, visible: bool) {
-        let rect = match self.nodes.get_mut(id) {
+        let (rect, was_visible) = match self.nodes.get_mut(id) {
             Some(node) if node.visible != visible => {
+                let was = node.visible;
                 node.visible = visible;
                 node.paint_dirty = true;
-                node.rect
+                (node.rect, was)
             }
             _ => return,
         };
         self.record_invalidation(rect);
+
+        if !was_visible && visible {
+            let cb = self.nodes.get_mut(id).and_then(|n| n.on_visible.take());
+            if let Some(ref callback) = cb {
+                callback(id);
+            }
+            if let Some(node) = self.nodes.get_mut(id) {
+                node.on_visible = cb;
+            }
+        } else if was_visible && !visible {
+            let cb = self.nodes.get_mut(id).and_then(|n| n.on_hidden.take());
+            if let Some(ref callback) = cb {
+                callback(id);
+            }
+            if let Some(node) = self.nodes.get_mut(id) {
+                node.on_hidden = cb;
+            }
+        }
     }
 
     pub fn is_visible(&self, id: NodeId) -> Option<bool> {
         self.nodes.get(id).map(|n| n.visible)
+    }
+
+    pub fn set_on_visible(&mut self, id: NodeId, callback: impl Fn(NodeId) + 'static) {
+        if let Some(node) = self.nodes.get_mut(id) {
+            node.on_visible = Some(Box::new(callback));
+        }
+    }
+
+    pub fn set_on_hidden(&mut self, id: NodeId, callback: impl Fn(NodeId) + 'static) {
+        if let Some(node) = self.nodes.get_mut(id) {
+            node.on_hidden = Some(Box::new(callback));
+        }
     }
 
     pub fn set_hit_test_transparent(&mut self, id: NodeId, transparent: bool) {
@@ -499,6 +534,38 @@ impl NodeTree {
         if let Some(mut h) = handler {
             let mut ctx = EventContext::new(rect);
             let consumed = h.handle_mouse(event, &mut ctx);
+            let redraw_requested = ctx.redraw_requested();
+            let clipboard_write = ctx.take_clipboard_write();
+            if let Some(data) = self.nodes.get_mut(id) {
+                data.event_handler = Some(h);
+            }
+            EventDispatchResult {
+                consumed,
+                redraw_requested,
+                clipboard_write,
+            }
+        } else {
+            EventDispatchResult::default()
+        }
+    }
+
+    pub fn dispatch_scroll_event(&mut self, id: NodeId, event: &crate::event::ScrollEvent) -> bool {
+        self.dispatch_scroll_event_with_context(id, event).consumed
+    }
+
+    pub fn dispatch_scroll_event_with_context(
+        &mut self,
+        id: NodeId,
+        event: &crate::event::ScrollEvent,
+    ) -> EventDispatchResult {
+        let Some(data) = self.nodes.get(id) else {
+            return EventDispatchResult::default();
+        };
+        let rect = data.rect;
+        let handler = self.nodes.get_mut(id).and_then(|d| d.event_handler.take());
+        if let Some(mut h) = handler {
+            let mut ctx = EventContext::new(rect);
+            let consumed = h.handle_scroll(event, &mut ctx);
             let redraw_requested = ctx.redraw_requested();
             let clipboard_write = ctx.take_clipboard_write();
             if let Some(data) = self.nodes.get_mut(id) {
@@ -941,5 +1008,52 @@ mod tests {
         assert_eq!(snapshot.node_count(), 2);
         assert!(!snapshot.roots[0].focused);
         assert!(snapshot.roots[0].children[0].focused);
+    }
+
+    #[test]
+    fn visibility_hook_fires_on_transition() {
+        use std::cell::Cell;
+        use std::rc::Rc;
+
+        let mut tree = NodeTree::new();
+        let root = tree.insert(None);
+
+        let visible_count = Rc::new(Cell::new(0u32));
+        let hidden_count = Rc::new(Cell::new(0u32));
+
+        let vc = visible_count.clone();
+        tree.set_on_visible(root, move |_| {
+            vc.set(vc.get() + 1);
+        });
+        let hc = hidden_count.clone();
+        tree.set_on_hidden(root, move |_| {
+            hc.set(hc.get() + 1);
+        });
+
+        tree.set_visible(root, false);
+        assert_eq!(hidden_count.get(), 1);
+        assert_eq!(visible_count.get(), 0);
+
+        tree.set_visible(root, true);
+        assert_eq!(visible_count.get(), 1);
+        assert_eq!(hidden_count.get(), 1);
+    }
+
+    #[test]
+    fn visibility_hook_noop_on_same_state() {
+        use std::cell::Cell;
+        use std::rc::Rc;
+
+        let mut tree = NodeTree::new();
+        let root = tree.insert(None);
+
+        let count = Rc::new(Cell::new(0u32));
+        let c = count.clone();
+        tree.set_on_visible(root, move |_| {
+            c.set(c.get() + 1);
+        });
+
+        tree.set_visible(root, true);
+        assert_eq!(count.get(), 0);
     }
 }

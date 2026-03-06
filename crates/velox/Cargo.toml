@@ -14,6 +14,11 @@ velox-text = { workspace = true }
 velox-window = { workspace = true }
 velox-app = { workspace = true }
 velox-devtools = { workspace = true }
+velox-animation = { workspace = true }
+velox-list = { workspace = true }
+velox-storage = { workspace = true }
+velox-media = { workspace = true }
+velox-codegen = { workspace = true }
 
 [[example]]
 name = "demo"
