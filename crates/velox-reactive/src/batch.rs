@@ -47,3 +47,11 @@ fn flush() {
         notify_fn();
     }
 }
+
+pub struct Batch;
+
+impl Batch {
+    pub fn run(f: impl FnOnce()) {
+        batch(f);
+    }
+}

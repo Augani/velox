@@ -5,7 +5,7 @@ mod signal;
 pub(crate) mod subscription;
 pub(crate) mod tracking;
 
-pub use batch::batch;
+pub use batch::{batch, Batch};
 pub use computed::Computed;
 pub use event::Event;
 pub use signal::Signal;
