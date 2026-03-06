@@ -1,0 +1,10 @@
+[package]
+name = "velox-scene"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+velox-reactive = { workspace = true }
+slotmap = "1"

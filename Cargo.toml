@@ -7,6 +7,7 @@ members = [
     "crates/velox-runtime",
     "crates/velox-window",
     "crates/velox-app",
+    "crates/velox-scene",
 ]
 
 [workspace.package]
@@ -22,5 +23,7 @@ velox-platform = { path = "crates/velox-platform" }
 velox-runtime = { path = "crates/velox-runtime" }
 velox-window = { path = "crates/velox-window" }
 velox-app = { path = "crates/velox-app" }
+velox-scene = { path = "crates/velox-scene" }
 winit = "0.30"
+slotmap = "1"
 tokio = { version = "1", features = ["rt-multi-thread", "time", "sync"] }
