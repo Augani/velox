@@ -1,3 +1,4 @@
+use crate::drag::DragState;
 use crate::focus::FocusState;
 use crate::geometry::Point;
 use crate::node::NodeId;
@@ -11,6 +12,7 @@ pub struct Scene {
     focus: FocusState,
     command_list: CommandList,
     captured_pointer: Option<NodeId>,
+    drag_state: DragState,
 }
 
 impl Scene {
@@ -21,6 +23,7 @@ impl Scene {
             focus: FocusState::new(),
             command_list: CommandList::new(),
             captured_pointer: None,
+            drag_state: DragState::new(),
         }
     }
 
@@ -46,6 +49,14 @@ impl Scene {
 
     pub fn focus_mut(&mut self) -> &mut FocusState {
         &mut self.focus
+    }
+
+    pub fn drag_state(&self) -> &DragState {
+        &self.drag_state
+    }
+
+    pub fn drag_state_mut(&mut self) -> &mut DragState {
+        &mut self.drag_state
     }
 
     pub fn push_overlay(&mut self) -> OverlayId {

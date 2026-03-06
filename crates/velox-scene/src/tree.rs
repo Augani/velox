@@ -21,6 +21,7 @@ pub(crate) struct NodeData {
     pub(crate) layout: Option<Box<dyn Layout>>,
     pub(crate) event_handler: Option<Box<dyn EventHandler>>,
     pub(crate) accessibility: Option<AccessibilityNode>,
+    pub(crate) drop_target: Option<Box<dyn crate::drag::DropTarget>>,
     pub(crate) on_visible: Option<Box<dyn Fn(NodeId)>>,
     pub(crate) on_hidden: Option<Box<dyn Fn(NodeId)>>,
 }
@@ -39,6 +40,7 @@ impl NodeData {
             layout: None,
             event_handler: None,
             accessibility: None,
+            drop_target: None,
             on_visible: None,
             on_hidden: None,
         }
@@ -613,6 +615,52 @@ impl NodeTree {
         }
     }
 
+    pub fn set_drop_target(&mut self, id: NodeId, target: impl crate::drag::DropTarget) {
+        if let Some(node) = self.nodes.get_mut(id) {
+            node.drop_target = Some(Box::new(target));
+        }
+    }
+
+    pub fn find_drop_target(&self, point: Point) -> Option<NodeId> {
+        let hit = self.hit_test(point)?;
+        let mut current = Some(hit);
+        while let Some(id) = current {
+            if self
+                .nodes
+                .get(id)
+                .map(|n| n.drop_target.is_some())
+                .unwrap_or(false)
+            {
+                return Some(id);
+            }
+            current = self.parent(id);
+        }
+        None
+    }
+
+    pub fn dispatch_drop(
+        &mut self,
+        id: NodeId,
+        payload: crate::drag::DragPayload,
+        position: Point,
+    ) -> bool {
+        let target = self.nodes.get_mut(id).and_then(|d| d.drop_target.take());
+        if let Some(mut t) = target {
+            let accepted = t.accepts(&payload);
+            let result = if accepted {
+                t.on_drop(payload, position)
+            } else {
+                false
+            };
+            if let Some(data) = self.nodes.get_mut(id) {
+                data.drop_target = Some(t);
+            }
+            result
+        } else {
+            false
+        }
+    }
+
     fn hit_test_node(&self, id: NodeId, point: Point) -> Option<NodeId> {
         let data = self.nodes.get(id)?;
 
@@ -1069,6 +1117,32 @@ mod tests {
         tree.set_visible(root, true);
         assert_eq!(visible_count.get(), 1);
         assert_eq!(hidden_count.get(), 1);
+    }
+
+    #[test]
+    fn find_drop_target_walks_up_tree() {
+        use crate::drag::{DragPayload, DropTarget};
+
+        struct AcceptAll;
+        impl DropTarget for AcceptAll {
+            fn accepts(&self, _: &DragPayload) -> bool {
+                true
+            }
+            fn on_drop(&mut self, _: DragPayload, _: Point) -> bool {
+                true
+            }
+        }
+
+        let mut tree = NodeTree::new();
+        let root = tree.insert(None);
+        tree.set_rect(root, Rect::new(0.0, 0.0, 200.0, 200.0));
+        let child = tree.insert(Some(root));
+        tree.set_rect(child, Rect::new(0.0, 0.0, 100.0, 100.0));
+
+        tree.set_drop_target(root, AcceptAll);
+
+        let target = tree.find_drop_target(Point::new(50.0, 50.0));
+        assert_eq!(target, Some(root));
     }
 
     #[test]

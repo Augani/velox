@@ -411,6 +411,19 @@ impl ApplicationHandler for VeloxHandler {
                     ws.scene_dirty = true;
                 }
             }
+            WindowEvent::DroppedFile(path) => {
+                if let Some(ws) = self.windows.get_mut(&velox_id) {
+                    let point = self.cursor_position;
+                    let payload = velox_scene::DragPayload::Files(vec![path]);
+                    if let Some(target_id) = ws.scene.tree().find_drop_target(point) {
+                        ws.scene.tree_mut().dispatch_drop(target_id, payload, point);
+                        ws.needs_redraw = true;
+                        ws.scene_dirty = true;
+                    }
+                }
+            }
+            WindowEvent::HoveredFile(_path) => {}
+            WindowEvent::HoveredFileCancelled => {}
             _ => {}
         }
     }

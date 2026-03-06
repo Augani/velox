@@ -219,6 +219,9 @@ impl Renderer {
                     PaintCommand::PopClip => {
                         let _ = clip_stack.pop();
                     }
+                    PaintCommand::PushLayer { .. } => {}
+                    PaintCommand::PopLayer => {}
+                    PaintCommand::BoxShadow { .. } => {}
                 }
             }
         }
