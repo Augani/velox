@@ -8,9 +8,15 @@ pub struct FocusChange {
     pub gained: Option<NodeId>,
 }
 
+struct FocusScope {
+    allowed_nodes: Vec<NodeId>,
+    previous_focus: Option<NodeId>,
+}
+
 pub struct FocusState {
     focused: Option<NodeId>,
     change_event: Event<FocusChange>,
+    scopes: Vec<FocusScope>,
 }
 
 impl FocusState {
@@ -18,6 +24,7 @@ impl FocusState {
         Self {
             focused: None,
             change_event: Event::new(),
+            scopes: Vec::new(),
         }
     }
 
@@ -28,6 +35,11 @@ impl FocusState {
     pub fn request_focus(&mut self, id: NodeId) {
         if self.focused == Some(id) {
             return;
+        }
+        if let Some(scope) = self.scopes.last() {
+            if !scope.allowed_nodes.contains(&id) {
+                return;
+            }
         }
         let lost = self.focused.take();
         self.focused = Some(id);
@@ -45,6 +57,28 @@ impl FocusState {
             lost: Some(lost_id),
             gained: None,
         });
+    }
+
+    pub fn push_scope(&mut self, allowed: Vec<NodeId>) {
+        let previous_focus = self.focused;
+        self.scopes.push(FocusScope {
+            allowed_nodes: allowed,
+            previous_focus,
+        });
+        self.release_focus();
+    }
+
+    pub fn pop_scope(&mut self) {
+        let Some(scope) = self.scopes.pop() else {
+            return;
+        };
+        if let Some(prev) = scope.previous_focus {
+            self.focused = Some(prev);
+            self.change_event.emit(FocusChange {
+                lost: self.focused,
+                gained: Some(prev),
+            });
+        }
     }
 
     pub fn on_focus_change(&self, callback: impl Fn(&FocusChange) + 'static) -> Subscription {
@@ -151,5 +185,41 @@ mod tests {
 
         state.request_focus(id);
         assert_eq!(count.get(), 1);
+    }
+
+    #[test]
+    fn push_scope_restricts_focus() {
+        let mut sm = make_slot_map();
+        let mut state = FocusState::new();
+        let outside = sm.insert(());
+        let inside_a = sm.insert(());
+        let inside_b = sm.insert(());
+
+        state.request_focus(outside);
+        assert_eq!(state.focused(), Some(outside));
+
+        state.push_scope(vec![inside_a, inside_b]);
+        assert_eq!(state.focused(), None);
+
+        state.request_focus(inside_a);
+        assert_eq!(state.focused(), Some(inside_a));
+
+        state.request_focus(outside);
+        assert_eq!(state.focused(), Some(inside_a));
+    }
+
+    #[test]
+    fn pop_scope_restores_previous_focus() {
+        let mut sm = make_slot_map();
+        let mut state = FocusState::new();
+        let outside = sm.insert(());
+        let inside = sm.insert(());
+
+        state.request_focus(outside);
+        state.push_scope(vec![inside]);
+        state.request_focus(inside);
+        state.pop_scope();
+
+        assert_eq!(state.focused(), Some(outside));
     }
 }

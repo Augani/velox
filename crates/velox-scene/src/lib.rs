@@ -25,7 +25,7 @@ mod overlay;
 mod scene;
 
 pub use focus::{FocusChange, FocusState};
-pub use overlay::{OverlayId, OverlayStack};
+pub use overlay::{ModalConfig, OverlayId, OverlayStack};
 pub use scene::Scene;
 
 mod shortcut;

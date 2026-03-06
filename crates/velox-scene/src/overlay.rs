@@ -5,9 +5,17 @@ use crate::tree::NodeTree;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct OverlayId(u64);
 
+#[derive(Debug, Clone, Copy)]
+pub struct ModalConfig {
+    pub backdrop_dismisses: bool,
+    pub trap_focus: bool,
+    pub blocks_parent: bool,
+}
+
 struct OverlayEntry {
     id: OverlayId,
     tree: NodeTree,
+    modal_config: Option<ModalConfig>,
 }
 
 #[derive(Default)]
@@ -27,8 +35,42 @@ impl OverlayStack {
         self.overlays.push(OverlayEntry {
             id,
             tree: NodeTree::new(),
+            modal_config: None,
         });
         id
+    }
+
+    pub fn push_modal(&mut self, config: ModalConfig) -> OverlayId {
+        let id = OverlayId(self.next_id);
+        self.next_id += 1;
+        self.overlays.push(OverlayEntry {
+            id,
+            tree: NodeTree::new(),
+            modal_config: Some(config),
+        });
+        id
+    }
+
+    pub fn is_modal(&self, id: OverlayId) -> bool {
+        self.overlays
+            .iter()
+            .find(|e| e.id == id)
+            .is_some_and(|e| e.modal_config.is_some())
+    }
+
+    pub fn modal_config(&self, id: OverlayId) -> Option<ModalConfig> {
+        self.overlays
+            .iter()
+            .find(|e| e.id == id)
+            .and_then(|e| e.modal_config)
+    }
+
+    pub fn topmost_modal(&self) -> Option<OverlayId> {
+        self.overlays
+            .iter()
+            .rev()
+            .find(|e| e.modal_config.is_some())
+            .map(|e| e.id)
     }
 
     pub fn pop_overlay(&mut self, id: OverlayId) -> bool {
@@ -167,5 +209,53 @@ mod tests {
     fn hit_test_returns_none_when_empty() {
         let stack = OverlayStack::new();
         assert_eq!(stack.hit_test(Point::new(50.0, 50.0)), None);
+    }
+
+    #[test]
+    fn push_modal_creates_modal_overlay() {
+        let mut stack = OverlayStack::new();
+        let config = ModalConfig {
+            backdrop_dismisses: true,
+            trap_focus: true,
+            blocks_parent: true,
+        };
+        let id = stack.push_modal(config);
+        assert_eq!(stack.len(), 1);
+        assert!(stack.is_modal(id));
+    }
+
+    #[test]
+    fn non_modal_overlay_is_not_modal() {
+        let mut stack = OverlayStack::new();
+        let id = stack.push_overlay();
+        assert!(!stack.is_modal(id));
+    }
+
+    #[test]
+    fn modal_config_retrievable() {
+        let mut stack = OverlayStack::new();
+        let config = ModalConfig {
+            backdrop_dismisses: false,
+            trap_focus: true,
+            blocks_parent: false,
+        };
+        let id = stack.push_modal(config);
+        let stored = stack.modal_config(id).unwrap();
+        assert!(!stored.backdrop_dismisses);
+        assert!(stored.trap_focus);
+        assert!(!stored.blocks_parent);
+    }
+
+    #[test]
+    fn topmost_modal_returns_latest() {
+        let mut stack = OverlayStack::new();
+        let _non_modal = stack.push_overlay();
+        let modal_config = ModalConfig {
+            backdrop_dismisses: true,
+            trap_focus: true,
+            blocks_parent: true,
+        };
+        let modal_id = stack.push_modal(modal_config);
+        assert_eq!(stack.topmost_modal(), Some(modal_id));
     }
 }
