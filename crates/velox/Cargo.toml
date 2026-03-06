@@ -35,3 +35,6 @@ name = "phase4_demo"
 
 [[example]]
 name = "phase5_demo"
+
+[[example]]
+name = "particle_life"

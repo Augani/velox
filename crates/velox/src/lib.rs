@@ -39,8 +39,9 @@ pub mod prelude {
     pub use velox_style::{Palette, Theme, ThemeColor, ThemeManager};
     pub use velox_text::{EditableText, FontSystem, TextBuffer, TextSelection};
     pub use velox_ui::{
-        auto, canvas, div, fr, img, pct, px, svg, text, Component, Element, InteractiveElement,
-        IntoElement, Length, ParentElement, Style, Styled,
+        auto, canvas, div, fr, img, input, list, modal, overlay, pct, px, svg, text, Component,
+        Element, InteractiveElement, IntoElement, Length, ParentElement, RenderArena, Style,
+        Styled,
     };
     pub use velox_window::WindowConfig;
 }
