@@ -15,5 +15,6 @@ pub use paint::{Color, CommandList, PaintCommand};
 pub use painter::Painter;
 
 mod focus;
+mod hit_test;
 
 pub use focus::{FocusChange, FocusState};

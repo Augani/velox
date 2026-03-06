@@ -1,6 +1,6 @@
 use slotmap::SlotMap;
 
-use crate::geometry::Rect;
+use crate::geometry::{Point, Rect};
 use crate::layout::Layout;
 use crate::node::NodeId;
 use crate::paint::CommandList;
@@ -286,6 +286,31 @@ impl NodeTree {
         for child in children {
             self.layout_node(child);
         }
+    }
+
+    pub fn hit_test(&self, point: Point) -> Option<NodeId> {
+        let root = self.root?;
+        self.hit_test_node(root, point)
+    }
+
+    fn hit_test_node(&self, id: NodeId, point: Point) -> Option<NodeId> {
+        let data = self.nodes.get(id)?;
+
+        if !data.visible || data.hit_test_transparent {
+            return None;
+        }
+
+        if !data.rect.contains(point) {
+            return None;
+        }
+
+        for &child in data.children.iter().rev() {
+            if let Some(hit) = self.hit_test_node(child, point) {
+                return Some(hit);
+            }
+        }
+
+        Some(id)
     }
 }
 
