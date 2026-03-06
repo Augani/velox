@@ -26,3 +26,9 @@ pub use scene::Scene;
 mod shortcut;
 
 pub use shortcut::{Key, KeyCombo, Modifiers, ShortcutId, ShortcutRegistry};
+
+mod event;
+mod event_handler;
+
+pub use event::{ButtonState, KeyEvent, KeyState, MouseButton, MouseEvent};
+pub use event_handler::{EventContext, EventHandler};
