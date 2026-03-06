@@ -3,5 +3,6 @@ docs/
 .serena/
 .claude-tasks.md
 AGENTS.md
+CLAUDE.md
 rust_desktop_framework_runtime_from_tdesktop.md
 *.md.bak
