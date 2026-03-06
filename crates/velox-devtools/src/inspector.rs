@@ -1,4 +1,4 @@
-use velox_scene::{AccessibilityRole, AccessibilityTreeSnapshot, NodeId, Rect};
+use velox_scene::{AccessibilityRole, AccessibilityTreeSnapshot, NodeId, Point, Rect};
 
 #[derive(Debug, Clone)]
 pub struct InspectorNode {
@@ -26,9 +26,9 @@ impl InspectorSnapshot {
         self.roots.iter().map(count_nodes).sum()
     }
 
-    pub fn find_at(&self, x: f32, y: f32) -> Option<&InspectorNode> {
+    pub fn find_at(&self, point: Point) -> Option<&InspectorNode> {
         for root in self.roots.iter().rev() {
-            if let Some(hit) = find_at_recursive(root, x, y) {
+            if let Some(hit) = find_at_recursive(root, point) {
                 return Some(hit);
             }
         }
@@ -59,23 +59,20 @@ fn count_nodes(node: &InspectorNode) -> usize {
     1 + node.children.iter().map(count_nodes).sum::<usize>()
 }
 
-fn find_at_recursive(node: &InspectorNode, x: f32, y: f32) -> Option<&InspectorNode> {
-    if !point_in_rect(x, y, &node.rect) {
+fn find_at_recursive(node: &InspectorNode, point: Point) -> Option<&InspectorNode> {
+    if !node.rect.contains(point) {
         return None;
     }
     for child in node.children.iter().rev() {
-        if let Some(hit) = find_at_recursive(child, x, y) {
+        if let Some(hit) = find_at_recursive(child, point) {
             return Some(hit);
         }
     }
     Some(node)
 }
 
-fn point_in_rect(x: f32, y: f32, rect: &Rect) -> bool {
-    x >= rect.x && x < rect.x + rect.width && y >= rect.y && y < rect.y + rect.height
-}
-
 fn format_node(out: &mut String, node: &InspectorNode, depth: usize) {
+    use std::fmt::Write;
     let indent = "  ".repeat(depth);
     let role_str = match node.role {
         Some(role) => format!("{role:?}"),
@@ -86,10 +83,11 @@ fn format_node(out: &mut String, node: &InspectorNode, depth: usize) {
         None => String::new(),
     };
     let focus_str = if node.focused { " [focused]" } else { "" };
-    out.push_str(&format!(
-        "{indent}{role_str}{label_str} ({:.0},{:.0} {:.0}x{:.0}){focus_str}\n",
+    let _ = writeln!(
+        out,
+        "{indent}{role_str}{label_str} ({:.0},{:.0} {:.0}x{:.0}){focus_str}",
         node.rect.x, node.rect.y, node.rect.width, node.rect.height,
-    ));
+    );
     for child in &node.children {
         format_node(out, child, depth + 1);
     }
@@ -138,7 +136,7 @@ mod tests {
     #[test]
     fn find_at_hits_deepest_node() {
         let snapshot = InspectorSnapshot::from_accessibility_tree(&make_snapshot());
-        let hit = snapshot.find_at(15.0, 15.0);
+        let hit = snapshot.find_at(Point::new(15.0, 15.0));
         assert!(hit.is_some());
         assert_eq!(hit.unwrap().label.as_deref(), Some("OK"));
     }
@@ -146,7 +144,7 @@ mod tests {
     #[test]
     fn find_at_misses_outside() {
         let snapshot = InspectorSnapshot::from_accessibility_tree(&make_snapshot());
-        assert!(snapshot.find_at(900.0, 900.0).is_none());
+        assert!(snapshot.find_at(Point::new(900.0, 900.0)).is_none());
     }
 
     #[test]

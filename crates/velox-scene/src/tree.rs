@@ -60,8 +60,13 @@ impl NodeTree {
         Self::default()
     }
 
+    const MAX_INVALIDATION_REGIONS: usize = 256;
+
     fn record_invalidation(&mut self, rect: Rect) {
         if rect.width <= 0.0 || rect.height <= 0.0 {
+            return;
+        }
+        if self.invalidation_regions.len() >= Self::MAX_INVALIDATION_REGIONS {
             return;
         }
         self.invalidation_regions.push(rect);
@@ -222,6 +227,9 @@ impl NodeTree {
     pub fn set_accessibility(&mut self, id: NodeId, accessibility: AccessibilityNode) {
         let rect = match self.nodes.get_mut(id) {
             Some(node) => {
+                if node.accessibility.as_ref() == Some(&accessibility) {
+                    return;
+                }
                 node.accessibility = Some(accessibility);
                 node.rect
             }
@@ -232,11 +240,11 @@ impl NodeTree {
 
     pub fn clear_accessibility(&mut self, id: NodeId) {
         let rect = match self.nodes.get_mut(id) {
-            Some(node) => {
+            Some(node) if node.accessibility.is_some() => {
                 node.accessibility = None;
                 node.rect
             }
-            None => return,
+            _ => return,
         };
         self.record_invalidation(rect);
     }
@@ -530,6 +538,7 @@ impl NodeTree {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::accessibility::AccessibilityRole;
 
     #[test]
     fn create_root_node() {
@@ -807,5 +816,130 @@ mod tests {
         let result = tree.dispatch_mouse_event_with_context(root, &event);
         assert!(result.consumed);
         assert!(result.redraw_requested);
+    }
+
+    #[test]
+    fn invalidation_regions_accumulate_on_set_rect() {
+        let mut tree = NodeTree::new();
+        let root = tree.insert(None);
+        tree.set_rect(root, Rect::new(0.0, 0.0, 100.0, 100.0));
+        assert!(!tree.invalidation_regions().is_empty());
+        let drained = tree.drain_invalidation_regions();
+        assert!(!drained.is_empty());
+        assert!(tree.invalidation_regions().is_empty());
+    }
+
+    #[test]
+    fn invalidation_skips_zero_size_rects() {
+        let mut tree = NodeTree::new();
+        let root = tree.insert(None);
+        assert!(
+            tree.invalidation_regions().is_empty() || tree.drain_invalidation_regions().is_empty()
+        );
+        tree.drain_invalidation_regions();
+        tree.set_rect(root, Rect::new(0.0, 0.0, 0.0, 0.0));
+        assert!(tree.invalidation_regions().is_empty());
+    }
+
+    #[test]
+    fn invalidation_regions_bounded() {
+        let mut tree = NodeTree::new();
+        let root = tree.insert(None);
+        tree.drain_invalidation_regions();
+        for i in 0..300 {
+            tree.set_rect(root, Rect::new(i as f32, 0.0, 10.0, 10.0));
+        }
+        assert!(tree.invalidation_regions().len() <= NodeTree::MAX_INVALIDATION_REGIONS);
+    }
+
+    #[test]
+    fn set_accessibility_and_query() {
+        let mut tree = NodeTree::new();
+        let root = tree.insert(None);
+        assert!(tree.accessibility(root).is_none());
+
+        let a11y = AccessibilityNode::new(AccessibilityRole::Button).label("Click");
+        tree.set_accessibility(root, a11y);
+        let stored = tree.accessibility(root).unwrap();
+        assert_eq!(stored.role, AccessibilityRole::Button);
+        assert_eq!(stored.label.as_deref(), Some("Click"));
+    }
+
+    #[test]
+    fn set_accessibility_same_value_no_invalidation() {
+        let mut tree = NodeTree::new();
+        let root = tree.insert(None);
+        tree.set_rect(root, Rect::new(0.0, 0.0, 50.0, 50.0));
+        let a11y = AccessibilityNode::new(AccessibilityRole::Label).label("Hi");
+        tree.set_accessibility(root, a11y.clone());
+        tree.drain_invalidation_regions();
+
+        tree.set_accessibility(root, a11y);
+        assert!(tree.invalidation_regions().is_empty());
+    }
+
+    #[test]
+    fn clear_accessibility_noop_when_none() {
+        let mut tree = NodeTree::new();
+        let root = tree.insert(None);
+        tree.set_rect(root, Rect::new(0.0, 0.0, 50.0, 50.0));
+        tree.drain_invalidation_regions();
+
+        tree.clear_accessibility(root);
+        assert!(tree.invalidation_regions().is_empty());
+    }
+
+    #[test]
+    fn build_accessibility_tree_empty() {
+        let tree = NodeTree::new();
+        let snapshot = tree.build_accessibility_tree(None);
+        assert!(snapshot.is_empty());
+    }
+
+    #[test]
+    fn build_accessibility_tree_skips_invisible() {
+        let mut tree = NodeTree::new();
+        let root = tree.insert(None);
+        tree.set_rect(root, Rect::new(0.0, 0.0, 100.0, 100.0));
+        tree.set_accessibility(root, AccessibilityNode::new(AccessibilityRole::Window));
+        tree.set_visible(root, false);
+
+        let snapshot = tree.build_accessibility_tree(None);
+        assert!(snapshot.is_empty());
+    }
+
+    #[test]
+    fn build_accessibility_tree_promotes_children_without_a11y() {
+        let mut tree = NodeTree::new();
+        let root = tree.insert(None);
+        tree.set_rect(root, Rect::new(0.0, 0.0, 100.0, 100.0));
+
+        let child = tree.insert(Some(root));
+        tree.set_rect(child, Rect::new(10.0, 10.0, 80.0, 30.0));
+        tree.set_accessibility(
+            child,
+            AccessibilityNode::new(AccessibilityRole::Button).label("OK"),
+        );
+
+        let snapshot = tree.build_accessibility_tree(None);
+        assert_eq!(snapshot.node_count(), 1);
+        assert_eq!(snapshot.roots[0].role, AccessibilityRole::Button);
+    }
+
+    #[test]
+    fn build_accessibility_tree_with_focus() {
+        let mut tree = NodeTree::new();
+        let root = tree.insert(None);
+        tree.set_rect(root, Rect::new(0.0, 0.0, 100.0, 100.0));
+        tree.set_accessibility(root, AccessibilityNode::new(AccessibilityRole::Window));
+
+        let child = tree.insert(Some(root));
+        tree.set_rect(child, Rect::new(0.0, 0.0, 50.0, 20.0));
+        tree.set_accessibility(child, AccessibilityNode::new(AccessibilityRole::TextInput));
+
+        let snapshot = tree.build_accessibility_tree(Some(child));
+        assert_eq!(snapshot.node_count(), 2);
+        assert!(!snapshot.roots[0].focused);
+        assert!(snapshot.roots[0].children[0].focused);
     }
 }

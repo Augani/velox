@@ -1,6 +1,6 @@
 use crate::{NodeId, Rect};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum AccessibilityRole {
     Window,
     Group,
