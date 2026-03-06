@@ -39,6 +39,13 @@ impl ComputePool {
             sender.send(task).expect("ComputePool has been shut down");
         }
     }
+
+    pub fn spawn<F>(&self, task: F)
+    where
+        F: FnOnce() + Send + 'static,
+    {
+        self.submit(Box::new(task));
+    }
 }
 
 impl Drop for ComputePool {

@@ -6,3 +6,6 @@ edition.workspace = true
 [dependencies]
 velox-platform = { workspace = true }
 tokio = { workspace = true }
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }

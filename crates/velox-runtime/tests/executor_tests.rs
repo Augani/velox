@@ -1,25 +1,19 @@
 use std::sync::atomic::{AtomicU32, Ordering};
+use std::sync::mpsc;
 use std::sync::Arc;
 use std::time::Duration;
 use velox_runtime::executor::{ComputePool, DeliverQueue, IoExecutor, UiQueue};
 
 #[test]
-fn ui_queue_push_and_flush() {
-    let counter = Arc::new(AtomicU32::new(0));
+fn ui_queue_runs_tasks_on_flush() {
     let mut queue = UiQueue::new();
-
-    let c = counter.clone();
+    let (tx, rx) = mpsc::channel();
     queue.push(Box::new(move || {
-        c.fetch_add(1, Ordering::Relaxed);
+        tx.send(42).unwrap();
     }));
-    let c = counter.clone();
-    queue.push(Box::new(move || {
-        c.fetch_add(10, Ordering::Relaxed);
-    }));
-
-    assert_eq!(counter.load(Ordering::Relaxed), 0);
+    assert!(rx.try_recv().is_err());
     queue.flush();
-    assert_eq!(counter.load(Ordering::Relaxed), 11);
+    assert_eq!(rx.recv_timeout(Duration::from_millis(100)).unwrap(), 42);
 }
 
 #[test]
@@ -48,6 +42,33 @@ fn ui_queue_is_empty() {
 }
 
 #[test]
+fn compute_pool_runs_work_on_background_thread() {
+    let pool = ComputePool::new(2);
+    let (tx, rx) = mpsc::channel();
+    pool.spawn(move || {
+        tx.send(std::thread::current().id()).unwrap();
+    });
+    let worker_thread = rx.recv_timeout(Duration::from_secs(2)).unwrap();
+    assert_ne!(worker_thread, std::thread::current().id());
+}
+
+#[test]
+fn compute_pool_handles_multiple_tasks() {
+    let pool = ComputePool::new(2);
+    let (tx, rx) = mpsc::channel();
+    for i in 0..10 {
+        let tx = tx.clone();
+        pool.spawn(move || {
+            tx.send(i).unwrap();
+        });
+    }
+    let mut results: Vec<i32> =
+        (0..10).map(|_| rx.recv_timeout(Duration::from_secs(2)).unwrap()).collect();
+    results.sort();
+    assert_eq!(results, (0..10).collect::<Vec<_>>());
+}
+
+#[test]
 fn compute_pool_executes_tasks() {
     let pool = ComputePool::new(2);
     let counter = Arc::new(AtomicU32::new(0));
@@ -64,38 +85,19 @@ fn compute_pool_executes_tasks() {
 }
 
 #[test]
-fn compute_pool_bounded_threads() {
-    let pool = ComputePool::new(4);
-    let counter = Arc::new(AtomicU32::new(0));
-
-    for _ in 0..100 {
-        let c = counter.clone();
-        pool.submit(Box::new(move || {
-            c.fetch_add(1, Ordering::Relaxed);
-        }));
-    }
-
-    drop(pool);
-    assert_eq!(counter.load(Ordering::Relaxed), 100);
-}
-
-#[test]
-fn io_executor_runs_async_task() {
-    let executor = IoExecutor::new().expect("failed to create IoExecutor");
-    let result = Arc::new(AtomicU32::new(0));
-
-    let r = result.clone();
+fn io_executor_runs_async_work() {
+    let executor = IoExecutor::new();
+    let (tx, rx) = mpsc::channel();
     executor.spawn(async move {
-        r.store(42, Ordering::Relaxed);
+        tx.send(42).unwrap();
     });
-
-    std::thread::sleep(Duration::from_millis(50));
-    assert_eq!(result.load(Ordering::Relaxed), 42);
+    let result = rx.recv_timeout(Duration::from_secs(2)).unwrap();
+    assert_eq!(result, 42);
 }
 
 #[test]
 fn io_executor_runs_multiple_tasks() {
-    let executor = IoExecutor::new().expect("failed to create IoExecutor");
+    let executor = IoExecutor::new();
     let counter = Arc::new(AtomicU32::new(0));
 
     for _ in 0..10 {
@@ -110,53 +112,57 @@ fn io_executor_runs_multiple_tasks() {
 }
 
 #[test]
-fn deliver_queue_push_and_collect() {
-    let mut queue = DeliverQueue::new();
-    queue.push(1_u64, Box::new(42_i32));
-    queue.push(2_u64, Box::new("hello".to_string()));
-
-    let results = queue.drain();
-    assert_eq!(results.len(), 2);
+fn deliver_queue_matches_results_to_callbacks() {
+    let mut deliver = DeliverQueue::new();
+    let (tx, rx) = mpsc::channel();
+    let task_id = deliver.register(move |boxed: Box<dyn std::any::Any + Send>| {
+        let value = *boxed.downcast::<i32>().unwrap();
+        tx.send(value).unwrap();
+    });
+    deliver.send_result(task_id, Box::new(99i32));
+    deliver.flush();
+    assert_eq!(rx.recv_timeout(Duration::from_millis(100)).unwrap(), 99);
 }
 
 #[test]
-fn deliver_queue_type_recovery() {
-    let mut queue = DeliverQueue::new();
-    queue.push(1_u64, Box::new(99_i32));
-
-    let results = queue.drain();
-    assert_eq!(results.len(), 1);
-
-    let (task_id, value) = &results[0];
-    assert_eq!(*task_id, 1);
-    let recovered = value.downcast_ref::<i32>().expect("type mismatch");
-    assert_eq!(*recovered, 99);
+fn deliver_queue_ignores_unregistered_results() {
+    let mut deliver = DeliverQueue::new();
+    deliver.send_result(999, Box::new(42i32));
+    deliver.flush();
 }
 
 #[test]
-fn deliver_queue_drain_clears() {
-    let mut queue = DeliverQueue::new();
-    queue.push(1_u64, Box::new(42_i32));
+fn deliver_queue_placeholder_then_register() {
+    let mut deliver = DeliverQueue::new();
+    let task_id = deliver.register_placeholder();
 
-    let first = queue.drain();
-    assert_eq!(first.len(), 1);
-
-    let second = queue.drain();
-    assert!(second.is_empty());
-}
-
-#[test]
-fn deliver_queue_cross_thread() {
-    let queue = Arc::new(std::sync::Mutex::new(DeliverQueue::new()));
-
-    let q = queue.clone();
-    let handle = std::thread::spawn(move || {
-        q.lock().unwrap().push(1_u64, Box::new(42_i32));
+    let (tx, rx) = mpsc::channel();
+    deliver.register_for(task_id, move |boxed: Box<dyn std::any::Any + Send>| {
+        let value = *boxed.downcast::<i32>().unwrap();
+        tx.send(value).unwrap();
     });
 
-    handle.join().unwrap();
-    let results = queue.lock().unwrap().drain();
-    assert_eq!(results.len(), 1);
-    let recovered = results[0].1.downcast_ref::<i32>().unwrap();
-    assert_eq!(*recovered, 42);
+    deliver.send_result(task_id, Box::new(77i32));
+    deliver.flush();
+    assert_eq!(rx.recv_timeout(Duration::from_millis(100)).unwrap(), 77);
+}
+
+#[test]
+fn deliver_queue_cross_thread_via_sender() {
+    let mut deliver = DeliverQueue::new();
+    let (tx, rx) = mpsc::channel();
+    let task_id = deliver.register(move |boxed: Box<dyn std::any::Any + Send>| {
+        let value = *boxed.downcast::<i32>().unwrap();
+        tx.send(value).unwrap();
+    });
+
+    let sender = deliver.sender();
+    std::thread::spawn(move || {
+        sender.send((task_id, Box::new(42i32) as Box<dyn std::any::Any + Send>)).unwrap();
+    })
+    .join()
+    .unwrap();
+
+    deliver.flush();
+    assert_eq!(rx.recv_timeout(Duration::from_millis(100)).unwrap(), 42);
 }
