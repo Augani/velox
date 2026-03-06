@@ -56,6 +56,7 @@ pub struct GlyphUpload {
 pub struct CommandList {
     commands: Vec<PaintCommand>,
     glyph_uploads: Vec<GlyphUpload>,
+    epoch: u64,
 }
 
 impl CommandList {
@@ -63,28 +64,34 @@ impl CommandList {
         Self {
             commands: Vec::new(),
             glyph_uploads: Vec::new(),
+            epoch: 0,
         }
     }
 
     pub fn fill_rect(&mut self, rect: Rect, color: Color) {
+        self.bump_epoch();
         self.commands.push(PaintCommand::FillRect { rect, color });
     }
 
     pub fn stroke_rect(&mut self, rect: Rect, color: Color, width: f32) {
+        self.bump_epoch();
         self.commands
             .push(PaintCommand::StrokeRect { rect, color, width });
     }
 
     pub fn draw_glyphs(&mut self, glyphs: Vec<PositionedGlyph>, color: Color) {
+        self.bump_epoch();
         self.commands
             .push(PaintCommand::DrawGlyphs { glyphs, color });
     }
 
     pub fn push_clip(&mut self, rect: Rect) {
+        self.bump_epoch();
         self.commands.push(PaintCommand::PushClip(rect));
     }
 
     pub fn pop_clip(&mut self) {
+        self.bump_epoch();
         self.commands.push(PaintCommand::PopClip);
     }
 
@@ -95,6 +102,7 @@ impl CommandList {
         height: u32,
         data: Vec<u8>,
     ) {
+        self.bump_epoch();
         self.glyph_uploads.push(GlyphUpload {
             cache_key,
             width,
@@ -111,9 +119,18 @@ impl CommandList {
         &self.commands
     }
 
+    pub fn epoch(&self) -> u64 {
+        self.epoch
+    }
+
     pub fn clear(&mut self) {
+        self.bump_epoch();
         self.commands.clear();
         self.glyph_uploads.clear();
+    }
+
+    fn bump_epoch(&mut self) {
+        self.epoch = self.epoch.wrapping_add(1);
     }
 }
 

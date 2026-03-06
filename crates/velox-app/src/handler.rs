@@ -13,6 +13,7 @@ struct WindowState {
     scene: Scene,
     surface: WindowSurface,
     needs_redraw: bool,
+    scene_dirty: bool,
 }
 
 pub(crate) struct VeloxHandler {
@@ -127,6 +128,7 @@ impl ApplicationHandler for VeloxHandler {
                 scene: first_scene,
                 surface: first_surface,
                 needs_redraw: true,
+                scene_dirty: true,
             },
         );
 
@@ -146,6 +148,7 @@ impl ApplicationHandler for VeloxHandler {
                             scene: Scene::new(),
                             surface,
                             needs_redraw: true,
+                            scene_dirty: true,
                         },
                     );
                 }
@@ -184,6 +187,7 @@ impl ApplicationHandler for VeloxHandler {
                 if let (Some(gpu), Some(ws)) = (&self.gpu, self.windows.get_mut(&velox_id)) {
                     ws.surface.resize(gpu, size.width, size.height);
                     ws.needs_redraw = true;
+                    ws.scene_dirty = true;
                 }
             }
             WindowEvent::RedrawRequested => {
@@ -193,8 +197,11 @@ impl ApplicationHandler for VeloxHandler {
                 if let Some(ws) = self.windows.get_mut(&velox_id)
                     && let Some(renderer) = self.renderer.as_mut()
                 {
-                    ws.scene.layout();
-                    ws.scene.paint();
+                    if ws.scene_dirty {
+                        ws.scene.layout();
+                        ws.scene.paint();
+                        ws.scene_dirty = false;
+                    }
                     if let Err(err) = renderer.render(
                         gpu,
                         &ws.surface,
@@ -247,6 +254,7 @@ impl ApplicationHandler for VeloxHandler {
                         .dispatch_key_event_with_context(focused, &key_event, clipboard_read);
                     if result.redraw_requested {
                         ws.needs_redraw = true;
+                        ws.scene_dirty = true;
                     }
                     clipboard_write = result.clipboard_write;
                 }
@@ -273,6 +281,7 @@ impl ApplicationHandler for VeloxHandler {
                             ws.scene.focus_mut().request_focus(hit_id);
                             if was_focused != Some(hit_id) {
                                 ws.needs_redraw = true;
+                                ws.scene_dirty = true;
                             }
                             let node_rect = ws
                                 .scene
@@ -298,6 +307,7 @@ impl ApplicationHandler for VeloxHandler {
                                 .dispatch_mouse_event_with_context(hit_id, &mouse_event);
                             if result.redraw_requested {
                                 ws.needs_redraw = true;
+                                ws.scene_dirty = true;
                             }
                             clipboard_write = result.clipboard_write;
                         }

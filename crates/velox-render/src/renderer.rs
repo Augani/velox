@@ -11,6 +11,8 @@ pub struct Renderer {
     glyph_renderer: GlyphRenderer,
     rect_scratch: Vec<RectData>,
     glyph_scratch: Vec<GlyphQuad>,
+    cached_command_epoch: Option<u64>,
+    cached_surface_size: Option<(u32, u32)>,
 }
 
 impl Renderer {
@@ -20,6 +22,8 @@ impl Renderer {
             glyph_renderer: GlyphRenderer::new(gpu, target_format),
             rect_scratch: Vec::new(),
             glyph_scratch: Vec::new(),
+            cached_command_epoch: None,
+            cached_surface_size: None,
         }
     }
 
@@ -30,81 +34,90 @@ impl Renderer {
         commands: &CommandList,
         atlas: &mut GlyphAtlas,
     ) -> Result<(), wgpu::SurfaceError> {
-        for upload in commands.glyph_uploads() {
-            atlas.insert(upload.cache_key, upload.width, upload.height, &upload.data);
-        }
+        let surface_size = (surface.width(), surface.height());
+        let command_epoch = commands.epoch();
+        let commands_changed = self.cached_command_epoch != Some(command_epoch);
+        let surface_changed = self.cached_surface_size != Some(surface_size);
 
-        self.rect_scratch.clear();
-        self.glyph_scratch.clear();
+        if commands_changed {
+            for upload in commands.glyph_uploads() {
+                atlas.insert(upload.cache_key, upload.width, upload.height, &upload.data);
+            }
 
-        for cmd in commands.commands() {
-            match cmd {
-                PaintCommand::FillRect { rect, color } => {
-                    self.rect_scratch.push(RectData {
-                        x: rect.x,
-                        y: rect.y,
-                        width: rect.width,
-                        height: rect.height,
-                        color: color_to_f32(color),
-                    });
-                }
-                PaintCommand::StrokeRect { rect, color, width } => {
-                    let w = *width;
-                    let c = color_to_f32(color);
-                    self.rect_scratch.push(RectData {
-                        x: rect.x,
-                        y: rect.y,
-                        width: rect.width,
-                        height: w,
-                        color: c,
-                    });
-                    self.rect_scratch.push(RectData {
-                        x: rect.x,
-                        y: rect.y + rect.height - w,
-                        width: rect.width,
-                        height: w,
-                        color: c,
-                    });
-                    self.rect_scratch.push(RectData {
-                        x: rect.x,
-                        y: rect.y + w,
-                        width: w,
-                        height: rect.height - 2.0 * w,
-                        color: c,
-                    });
-                    self.rect_scratch.push(RectData {
-                        x: rect.x + rect.width - w,
-                        y: rect.y + w,
-                        width: w,
-                        height: rect.height - 2.0 * w,
-                        color: c,
-                    });
-                }
-                PaintCommand::DrawGlyphs { glyphs, color } => {
-                    let c = color_to_f32(color);
-                    for glyph in glyphs {
-                        if let Some(region) = atlas.get(&glyph.cache_key) {
-                            let uv = atlas.uv(region);
-                            self.glyph_scratch.push(GlyphQuad {
-                                x: glyph.x,
-                                y: glyph.y,
-                                width: glyph.width,
-                                height: glyph.height,
-                                uv,
-                                color: c,
-                            });
+            self.rect_scratch.clear();
+            self.glyph_scratch.clear();
+
+            for cmd in commands.commands() {
+                match cmd {
+                    PaintCommand::FillRect { rect, color } => {
+                        self.rect_scratch.push(RectData {
+                            x: rect.x,
+                            y: rect.y,
+                            width: rect.width,
+                            height: rect.height,
+                            color: color_to_f32(color),
+                        });
+                    }
+                    PaintCommand::StrokeRect { rect, color, width } => {
+                        let w = *width;
+                        let c = color_to_f32(color);
+                        self.rect_scratch.push(RectData {
+                            x: rect.x,
+                            y: rect.y,
+                            width: rect.width,
+                            height: w,
+                            color: c,
+                        });
+                        self.rect_scratch.push(RectData {
+                            x: rect.x,
+                            y: rect.y + rect.height - w,
+                            width: rect.width,
+                            height: w,
+                            color: c,
+                        });
+                        self.rect_scratch.push(RectData {
+                            x: rect.x,
+                            y: rect.y + w,
+                            width: w,
+                            height: rect.height - 2.0 * w,
+                            color: c,
+                        });
+                        self.rect_scratch.push(RectData {
+                            x: rect.x + rect.width - w,
+                            y: rect.y + w,
+                            width: w,
+                            height: rect.height - 2.0 * w,
+                            color: c,
+                        });
+                    }
+                    PaintCommand::DrawGlyphs { glyphs, color } => {
+                        let c = color_to_f32(color);
+                        for glyph in glyphs {
+                            if let Some(region) = atlas.get(&glyph.cache_key) {
+                                let uv = atlas.uv(region);
+                                self.glyph_scratch.push(GlyphQuad {
+                                    x: glyph.x,
+                                    y: glyph.y,
+                                    width: glyph.width,
+                                    height: glyph.height,
+                                    uv,
+                                    color: c,
+                                });
+                            }
                         }
                     }
+                    PaintCommand::PushClip(_) | PaintCommand::PopClip => {}
                 }
-                PaintCommand::PushClip(_) | PaintCommand::PopClip => {}
             }
         }
 
-        self.rect_renderer
-            .prepare(gpu, surface.width(), surface.height(), &self.rect_scratch);
+        if commands_changed || surface_changed {
+            self.rect_renderer
+                .prepare(gpu, surface.width(), surface.height(), &self.rect_scratch);
 
-        self.glyph_renderer
-            .prepare(gpu, surface.width(), surface.height(), &self.glyph_scratch);
+            self.glyph_renderer
+                .prepare(gpu, surface.width(), surface.height(), &self.glyph_scratch);
+        }
 
         if atlas.is_dirty() {
             self.glyph_renderer.upload_atlas(gpu, atlas);
@@ -148,6 +161,8 @@ impl Renderer {
 
         gpu.queue.submit(std::iter::once(encoder.finish()));
         output.present();
+        self.cached_command_epoch = Some(command_epoch);
+        self.cached_surface_size = Some(surface_size);
 
         Ok(())
     }
