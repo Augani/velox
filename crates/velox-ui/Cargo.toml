@@ -1,0 +1,10 @@
+[package]
+name = "velox-ui"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+velox-scene = { workspace = true }
+velox-reactive = { workspace = true }
+velox-style = { workspace = true }
+taffy = { workspace = true }

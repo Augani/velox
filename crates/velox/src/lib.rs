@@ -12,6 +12,7 @@ pub use velox_scene as scene;
 pub use velox_storage as storage;
 pub use velox_style as style;
 pub use velox_text as text;
+pub use velox_ui as ui;
 pub use velox_window as window;
 
 pub use velox_devtools::{ResourceChange, ResourceGraph, ResourceNode};
@@ -37,5 +38,9 @@ pub mod prelude {
     pub use velox_storage::{CacheStore, SettingsStore};
     pub use velox_style::{Palette, Theme, ThemeColor, ThemeManager};
     pub use velox_text::{EditableText, FontSystem, TextBuffer, TextSelection};
+    pub use velox_ui::{
+        auto, canvas, div, fr, img, pct, px, svg, text, Component, Element, InteractiveElement,
+        IntoElement, Length, ParentElement, Style, Styled,
+    };
     pub use velox_window::WindowConfig;
 }

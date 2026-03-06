@@ -17,6 +17,7 @@ members = [
     "crates/velox-storage",
     "crates/velox-media",
     "crates/velox-codegen",
+    "crates/velox-ui",
 ]
 
 [workspace.package]
@@ -66,3 +67,5 @@ accesskit = "0.17"
 accesskit_winit = "0.23"
 softbuffer = "0.4"
 tiny-skia = "0.11"
+velox-ui = { path = "crates/velox-ui" }
+taffy = "0.7"

@@ -19,6 +19,7 @@ velox-list = { workspace = true }
 velox-storage = { workspace = true }
 velox-media = { workspace = true }
 velox-codegen = { workspace = true }
+velox-ui = { workspace = true }
 
 [[example]]
 name = "demo"
