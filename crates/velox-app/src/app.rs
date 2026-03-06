@@ -1,5 +1,6 @@
-use velox_runtime::Runtime;
 use velox_runtime::power::PowerPolicy;
+use velox_runtime::Runtime;
+use velox_scene::Scene;
 use velox_window::WindowConfig;
 use winit::event_loop::EventLoop;
 
@@ -9,6 +10,7 @@ pub struct App {
     name: String,
     power_policy: PowerPolicy,
     window_configs: Vec<WindowConfig>,
+    setup: Option<Box<dyn FnOnce(&mut Scene)>>,
 }
 
 impl App {
@@ -17,6 +19,7 @@ impl App {
             name: String::from("Velox App"),
             power_policy: PowerPolicy::default(),
             window_configs: Vec::new(),
+            setup: None,
         }
     }
 
@@ -39,10 +42,15 @@ impl App {
         &self.window_configs
     }
 
+    pub fn setup(mut self, f: impl FnOnce(&mut Scene) + 'static) -> Self {
+        self.setup = Some(Box::new(f));
+        self
+    }
+
     pub fn run(self) -> Result<(), Box<dyn std::error::Error>> {
         let event_loop = EventLoop::new()?;
         let runtime = Runtime::builder().power_policy(self.power_policy).build();
-        let mut handler = VeloxHandler::new(runtime, self.window_configs);
+        let mut handler = VeloxHandler::new(runtime, self.window_configs, self.setup);
         event_loop.run_app(&mut handler)?;
         Ok(())
     }

@@ -23,11 +23,16 @@ pub(crate) struct VeloxHandler {
     glyph_atlas: GlyphAtlas,
     shortcuts: ShortcutRegistry,
     pending_windows: Vec<WindowConfig>,
+    setup: Option<Box<dyn FnOnce(&mut Scene)>>,
     initialized: bool,
 }
 
 impl VeloxHandler {
-    pub(crate) fn new(runtime: Runtime, window_configs: Vec<WindowConfig>) -> Self {
+    pub(crate) fn new(
+        runtime: Runtime,
+        window_configs: Vec<WindowConfig>,
+        setup: Option<Box<dyn FnOnce(&mut Scene)>>,
+    ) -> Self {
         Self {
             runtime,
             window_manager: WindowManager::new(),
@@ -37,6 +42,7 @@ impl VeloxHandler {
             glyph_atlas: GlyphAtlas::new(1024, 1024),
             shortcuts: ShortcutRegistry::new(),
             pending_windows: window_configs,
+            setup,
             initialized: false,
         }
     }
@@ -76,10 +82,14 @@ impl ApplicationHandler for VeloxHandler {
         let first_surface = WindowSurface::new(&gpu, first_window_arc);
         let renderer = Renderer::new(&gpu, first_surface.format());
 
+        let mut first_scene = Scene::new();
+        if let Some(setup) = self.setup.take() {
+            setup(&mut first_scene);
+        }
         self.windows.insert(
             first_window_id,
             WindowState {
-                scene: Scene::new(),
+                scene: first_scene,
                 surface: first_surface,
             },
         );
