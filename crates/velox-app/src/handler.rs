@@ -42,9 +42,20 @@ impl ApplicationHandler for VeloxHandler {
         }
 
         for config in configs {
-            if let Ok(window_id) = self.window_manager.create_window(event_loop, config) {
-                self.scenes.insert(window_id, Scene::new());
+            let label = config.id_label().to_owned();
+            match self.window_manager.create_window(event_loop, config) {
+                Ok(window_id) => {
+                    self.scenes.insert(window_id, Scene::new());
+                }
+                Err(error) => {
+                    eprintln!("[velox] failed to create window `{label}`: {error}");
+                }
             }
+        }
+
+        if self.window_manager.is_empty() {
+            eprintln!("[velox] no windows were created, exiting");
+            event_loop.exit();
         }
     }
 

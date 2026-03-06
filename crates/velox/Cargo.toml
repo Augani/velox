@@ -13,3 +13,6 @@ velox-app = { workspace = true }
 
 [[example]]
 name = "demo"
+
+[[example]]
+name = "phase1_smoke"

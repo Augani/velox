@@ -3,9 +3,12 @@ use std::rc::Rc;
 
 use crate::subscription::{Subscription, SubscriptionFlag};
 
+type Callback<T> = Rc<dyn Fn(&T)>;
+type NotifyEntry<T> = (SubscriptionFlag, Callback<T>);
+
 struct SubscriberEntry<T> {
     flag: SubscriptionFlag,
-    callback: Rc<dyn Fn(&T)>,
+    callback: Callback<T>,
 }
 
 struct EventInner<T> {
@@ -36,7 +39,7 @@ impl<T> Event<T> {
     }
 
     pub fn emit(&self, value: T) {
-        let to_notify: Vec<(SubscriptionFlag, Rc<dyn Fn(&T)>)> = {
+        let to_notify: Vec<NotifyEntry<T>> = {
             let inner = self.inner.borrow();
             inner
                 .subscribers

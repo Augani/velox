@@ -5,8 +5,4 @@ impl WindowId {
     pub fn from_winit(id: winit::window::WindowId) -> Self {
         Self(id)
     }
-
-    pub(crate) fn winit_id(&self) -> winit::window::WindowId {
-        self.0
-    }
 }

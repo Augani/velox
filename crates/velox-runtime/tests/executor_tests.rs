@@ -1,6 +1,6 @@
+use std::sync::Arc;
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::mpsc;
-use std::sync::Arc;
 use std::time::Duration;
 use velox_runtime::executor::{ComputePool, DeliverQueue, IoExecutor, UiQueue};
 
@@ -62,8 +62,9 @@ fn compute_pool_handles_multiple_tasks() {
             tx.send(i).unwrap();
         });
     }
-    let mut results: Vec<i32> =
-        (0..10).map(|_| rx.recv_timeout(Duration::from_secs(2)).unwrap()).collect();
+    let mut results: Vec<i32> = (0..10)
+        .map(|_| rx.recv_timeout(Duration::from_secs(2)).unwrap())
+        .collect();
     results.sort();
     assert_eq!(results, (0..10).collect::<Vec<_>>());
 }
@@ -132,6 +133,22 @@ fn deliver_queue_ignores_unregistered_results() {
 }
 
 #[test]
+fn deliver_queue_keeps_results_until_callback_is_registered() {
+    let mut deliver = DeliverQueue::new();
+    let task_id = deliver.register_placeholder();
+    deliver.send_result(task_id, Box::new(55i32));
+    deliver.flush();
+
+    let (tx, rx) = mpsc::channel();
+    deliver.register_for(task_id, move |boxed: Box<dyn std::any::Any + Send>| {
+        let value = *boxed.downcast::<i32>().unwrap();
+        tx.send(value).unwrap();
+    });
+
+    assert_eq!(rx.recv_timeout(Duration::from_millis(100)).unwrap(), 55);
+}
+
+#[test]
 fn deliver_queue_placeholder_then_register() {
     let mut deliver = DeliverQueue::new();
     let task_id = deliver.register_placeholder();
@@ -158,7 +175,9 @@ fn deliver_queue_cross_thread_via_sender() {
 
     let sender = deliver.sender();
     std::thread::spawn(move || {
-        sender.send((task_id, Box::new(42i32) as Box<dyn std::any::Any + Send>)).unwrap();
+        sender
+            .send((task_id, Box::new(42i32) as Box<dyn std::any::Any + Send>))
+            .unwrap();
     })
     .join()
     .unwrap();

@@ -5,9 +5,12 @@ use crate::batch;
 use crate::subscription::{Subscription, SubscriptionFlag};
 use crate::tracking;
 
+type Callback<T> = Rc<dyn Fn(&T)>;
+type NotifyEntry<T> = (SubscriptionFlag, Callback<T>);
+
 struct SubscriberEntry<T> {
     flag: SubscriptionFlag,
-    callback: Rc<dyn Fn(&T)>,
+    callback: Callback<T>,
 }
 
 struct SignalInner<T> {
@@ -86,7 +89,7 @@ impl<T: Clone + 'static> Signal<T> {
     }
 
     fn do_notify(inner: &Rc<RefCell<SignalInner<T>>>) {
-        let to_notify: Vec<(SubscriptionFlag, Rc<dyn Fn(&T)>)> = {
+        let to_notify: Vec<NotifyEntry<T>> = {
             let borrowed = inner.borrow();
             borrowed
                 .subscribers

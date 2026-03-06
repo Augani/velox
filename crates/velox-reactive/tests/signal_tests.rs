@@ -1,6 +1,6 @@
 use std::cell::Cell;
 use std::rc::Rc;
-use velox_reactive::{Signal, Subscription, SubscriptionBag};
+use velox_reactive::{Signal, SubscriptionBag};
 
 #[test]
 fn signal_get_set() {

@@ -1204,6 +1204,7 @@ dependencies = [
  "velox-platform",
  "velox-reactive",
  "velox-runtime",
+ "velox-scene",
  "velox-window",
 ]
 
@@ -1214,6 +1215,7 @@ dependencies = [
  "velox-platform",
  "velox-reactive",
  "velox-runtime",
+ "velox-scene",
  "velox-window",
  "winit",
 ]

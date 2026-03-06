@@ -1,5 +1,5 @@
-use velox_runtime::power::PowerPolicy;
 use velox_runtime::Runtime;
+use velox_runtime::power::PowerPolicy;
 use velox_window::WindowConfig;
 use winit::event_loop::EventLoop;
 

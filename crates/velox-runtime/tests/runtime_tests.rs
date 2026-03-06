@@ -1,6 +1,26 @@
+use std::cell::Cell;
+use std::rc::Rc;
 use std::sync::mpsc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use velox_runtime::{PowerClass, PowerPolicy, Runtime};
+
+fn wait_for_delivery<T>(runtime: &mut Runtime, rx: &mpsc::Receiver<T>) -> T {
+    let deadline = Instant::now() + Duration::from_secs(2);
+    loop {
+        runtime.flush();
+        match rx.try_recv() {
+            Ok(value) => return value,
+            Err(mpsc::TryRecvError::Disconnected) => panic!("delivery channel disconnected"),
+            Err(mpsc::TryRecvError::Empty) => {
+                assert!(
+                    Instant::now() < deadline,
+                    "timed out waiting for task delivery"
+                );
+                std::thread::sleep(Duration::from_millis(10));
+            }
+        }
+    }
+}
 
 #[test]
 fn runtime_spawn_ui_runs_on_flush() {
@@ -22,9 +42,7 @@ fn runtime_spawn_compute_delivers_result() {
         let value = *result.downcast::<i32>().unwrap();
         tx.send(value).unwrap();
     });
-    std::thread::sleep(Duration::from_millis(100));
-    runtime.flush();
-    assert_eq!(rx.recv_timeout(Duration::from_secs(2)).unwrap(), 42);
+    assert_eq!(wait_for_delivery(&mut runtime, &rx), 42);
 }
 
 #[test]
@@ -36,9 +54,48 @@ fn runtime_spawn_io_delivers_result() {
         let value = *result.downcast::<i32>().unwrap();
         tx.send(value).unwrap();
     });
-    std::thread::sleep(Duration::from_millis(100));
+    assert_eq!(wait_for_delivery(&mut runtime, &rx), 99);
+}
+
+#[test]
+fn runtime_delivery_survives_late_callback_registration() {
+    let mut runtime = Runtime::new();
+    let task_id = runtime.spawn_compute(move || 11i32);
+
+    std::thread::sleep(Duration::from_millis(50));
     runtime.flush();
-    assert_eq!(rx.recv_timeout(Duration::from_secs(2)).unwrap(), 99);
+
+    let (tx, rx) = mpsc::channel();
+    runtime.register_deliver(task_id, move |result| {
+        let value = *result.downcast::<i32>().unwrap();
+        tx.send(value).unwrap();
+    });
+
+    assert_eq!(wait_for_delivery(&mut runtime, &rx), 11);
+}
+
+#[test]
+fn runtime_register_deliver_allows_non_send_ui_state() {
+    let mut runtime = Runtime::new();
+    let captured = Rc::new(Cell::new(0));
+    let ui_state = Rc::clone(&captured);
+
+    let task_id = runtime.spawn_compute(move || 7i32);
+    runtime.register_deliver(task_id, move |result| {
+        let value = *result.downcast::<i32>().unwrap();
+        ui_state.set(value);
+    });
+
+    let deadline = Instant::now() + Duration::from_secs(2);
+    while captured.get() == 0 {
+        runtime.flush();
+        assert!(
+            Instant::now() < deadline,
+            "timed out waiting for non-Send callback delivery"
+        );
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    assert_eq!(captured.get(), 7);
 }
 
 #[test]

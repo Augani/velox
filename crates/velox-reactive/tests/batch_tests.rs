@@ -1,6 +1,6 @@
 use std::cell::Cell;
 use std::rc::Rc;
-use velox_reactive::{batch, Signal};
+use velox_reactive::{Signal, batch};
 
 #[test]
 fn batch_defers_notifications() {

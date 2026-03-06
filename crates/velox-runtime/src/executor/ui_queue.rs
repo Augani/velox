@@ -1,7 +1,7 @@
 use std::collections::VecDeque;
 
 pub struct UiQueue {
-    tasks: VecDeque<Box<dyn FnOnce() + Send>>,
+    tasks: VecDeque<Box<dyn FnOnce()>>,
 }
 
 impl UiQueue {
@@ -11,7 +11,7 @@ impl UiQueue {
         }
     }
 
-    pub fn push(&mut self, task: Box<dyn FnOnce() + Send>) {
+    pub fn push(&mut self, task: Box<dyn FnOnce()>) {
         self.tasks.push_back(task);
     }
 

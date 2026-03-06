@@ -136,12 +136,9 @@ impl NodeTree {
         self.nodes.is_empty()
     }
 
+    #[cfg(test)]
     pub(crate) fn get(&self, id: NodeId) -> Option<&NodeData> {
         self.nodes.get(id)
-    }
-
-    pub(crate) fn get_mut(&mut self, id: NodeId) -> Option<&mut NodeData> {
-        self.nodes.get_mut(id)
     }
 
     pub fn set_rect(&mut self, id: NodeId, rect: Rect) {

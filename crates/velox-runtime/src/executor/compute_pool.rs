@@ -16,14 +16,16 @@ impl ComputePool {
         let mut workers = Vec::with_capacity(num_threads);
         for _ in 0..num_threads {
             let rx = receiver.clone();
-            workers.push(thread::spawn(move || loop {
-                let task = {
-                    let lock = rx.lock().unwrap();
-                    lock.recv()
-                };
-                match task {
-                    Ok(task) => task(),
-                    Err(_) => break,
+            workers.push(thread::spawn(move || {
+                loop {
+                    let task = {
+                        let lock = rx.lock().unwrap();
+                        lock.recv()
+                    };
+                    match task {
+                        Ok(task) => task(),
+                        Err(_) => break,
+                    }
                 }
             }));
         }

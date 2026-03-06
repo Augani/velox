@@ -23,7 +23,7 @@ impl Runtime {
         RuntimeBuilder::default()
     }
 
-    pub fn spawn_ui(&mut self, task: impl FnOnce() + Send + 'static) {
+    pub fn spawn_ui(&mut self, task: impl FnOnce() + 'static) {
         self.ui_queue.push(Box::new(task));
     }
 
@@ -68,7 +68,7 @@ impl Runtime {
 
     pub fn register_deliver<F>(&mut self, task_id: TaskId, callback: F)
     where
-        F: FnOnce(Box<dyn Any + Send>) + Send + 'static,
+        F: FnOnce(Box<dyn Any + Send>) + 'static,
     {
         self.deliver_queue.register_for(task_id, callback);
     }
