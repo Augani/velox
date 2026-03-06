@@ -22,3 +22,7 @@ mod scene;
 pub use focus::{FocusChange, FocusState};
 pub use overlay::{OverlayId, OverlayStack};
 pub use scene::Scene;
+
+mod shortcut;
+
+pub use shortcut::{Key, KeyCombo, Modifiers, ShortcutId, ShortcutRegistry};
