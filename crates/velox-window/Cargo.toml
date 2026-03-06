@@ -1,0 +1,8 @@
+[package]
+name = "velox-window"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+velox-platform = { workspace = true }
+winit = { workspace = true }

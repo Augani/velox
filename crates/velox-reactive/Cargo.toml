@@ -1,0 +1,6 @@
+[package]
+name = "velox-reactive"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
