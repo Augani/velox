@@ -38,6 +38,13 @@ impl NodeData {
     }
 }
 
+#[derive(Debug, Default)]
+pub struct EventDispatchResult {
+    pub consumed: bool,
+    pub redraw_requested: bool,
+    pub clipboard_write: Option<String>,
+}
+
 #[derive(Default)]
 pub struct NodeTree {
     nodes: SlotMap<NodeId, NodeData>,
@@ -301,41 +308,69 @@ impl NodeTree {
     }
 
     pub fn dispatch_key_event(&mut self, id: NodeId, event: &KeyEvent) -> bool {
+        self.dispatch_key_event_with_context(id, event, None).consumed
+    }
+
+    pub fn dispatch_key_event_with_context(
+        &mut self,
+        id: NodeId,
+        event: &KeyEvent,
+        clipboard_read: Option<String>,
+    ) -> EventDispatchResult {
         let Some(data) = self.nodes.get(id) else {
-            return false;
+            return EventDispatchResult::default();
         };
         let rect = data.rect;
         let handler = self.nodes.get_mut(id).and_then(|d| d.event_handler.take());
-        let consumed = if let Some(mut h) = handler {
+        if let Some(mut h) = handler {
             let mut ctx = EventContext::new(rect);
-            let result = h.handle_key(event, &mut ctx);
+            ctx.set_clipboard_content(clipboard_read);
+            let consumed = h.handle_key(event, &mut ctx);
+            let redraw_requested = ctx.redraw_requested();
+            let clipboard_write = ctx.take_clipboard_write();
             if let Some(data) = self.nodes.get_mut(id) {
                 data.event_handler = Some(h);
             }
-            result
+            EventDispatchResult {
+                consumed,
+                redraw_requested,
+                clipboard_write,
+            }
         } else {
-            false
-        };
-        consumed
+            EventDispatchResult::default()
+        }
     }
 
     pub fn dispatch_mouse_event(&mut self, id: NodeId, event: &crate::event::MouseEvent) -> bool {
+        self.dispatch_mouse_event_with_context(id, event).consumed
+    }
+
+    pub fn dispatch_mouse_event_with_context(
+        &mut self,
+        id: NodeId,
+        event: &crate::event::MouseEvent,
+    ) -> EventDispatchResult {
         let Some(data) = self.nodes.get(id) else {
-            return false;
+            return EventDispatchResult::default();
         };
         let rect = data.rect;
         let handler = self.nodes.get_mut(id).and_then(|d| d.event_handler.take());
-        let consumed = if let Some(mut h) = handler {
+        if let Some(mut h) = handler {
             let mut ctx = EventContext::new(rect);
-            let result = h.handle_mouse(event, &mut ctx);
+            let consumed = h.handle_mouse(event, &mut ctx);
+            let redraw_requested = ctx.redraw_requested();
+            let clipboard_write = ctx.take_clipboard_write();
             if let Some(data) = self.nodes.get_mut(id) {
                 data.event_handler = Some(h);
             }
-            result
+            EventDispatchResult {
+                consumed,
+                redraw_requested,
+                clipboard_write,
+            }
         } else {
-            false
-        };
-        consumed
+            EventDispatchResult::default()
+        }
     }
 
     fn hit_test_node(&self, id: NodeId, point: Point) -> Option<NodeId> {
@@ -570,5 +605,74 @@ mod tests {
         };
         let consumed = tree.dispatch_key_event(root, &event);
         assert!(!consumed);
+    }
+
+    #[test]
+    fn key_dispatch_returns_redraw_and_clipboard_effects() {
+        use crate::event::{KeyEvent, KeyState};
+        use crate::event_handler::{EventContext, EventHandler};
+        use crate::shortcut::{Key, Modifiers};
+
+        struct ClipboardHandler;
+        impl EventHandler for ClipboardHandler {
+            fn handle_key(&mut self, _event: &KeyEvent, ctx: &mut EventContext) -> bool {
+                assert_eq!(ctx.clipboard_get(), Some("paste me"));
+                ctx.clipboard_set("copy me");
+                ctx.request_redraw();
+                true
+            }
+        }
+
+        let mut tree = NodeTree::new();
+        let root = tree.insert(None);
+        tree.set_rect(root, Rect::new(0.0, 0.0, 200.0, 100.0));
+        tree.set_event_handler(root, ClipboardHandler);
+
+        let event = KeyEvent {
+            key: Key::V,
+            modifiers: Modifiers::CTRL,
+            state: KeyState::Pressed,
+            text: None,
+        };
+        let result = tree.dispatch_key_event_with_context(root, &event, Some("paste me".into()));
+        assert!(result.consumed);
+        assert!(result.redraw_requested);
+        assert_eq!(result.clipboard_write.as_deref(), Some("copy me"));
+    }
+
+    #[test]
+    fn mouse_dispatch_returns_redraw_signal() {
+        use crate::event::{ButtonState, KeyEvent, MouseButton, MouseEvent};
+        use crate::event_handler::{EventContext, EventHandler};
+        use crate::geometry::Point;
+        use crate::shortcut::Modifiers;
+
+        struct RedrawMouseHandler;
+        impl EventHandler for RedrawMouseHandler {
+            fn handle_key(&mut self, _event: &KeyEvent, _ctx: &mut EventContext) -> bool {
+                false
+            }
+
+            fn handle_mouse(&mut self, _event: &MouseEvent, ctx: &mut EventContext) -> bool {
+                ctx.request_redraw();
+                true
+            }
+        }
+
+        let mut tree = NodeTree::new();
+        let root = tree.insert(None);
+        tree.set_rect(root, Rect::new(0.0, 0.0, 200.0, 100.0));
+        tree.set_event_handler(root, RedrawMouseHandler);
+
+        let event = MouseEvent {
+            position: Point::new(10.0, 10.0),
+            button: MouseButton::Left,
+            state: ButtonState::Pressed,
+            click_count: 1,
+            modifiers: Modifiers::empty(),
+        };
+        let result = tree.dispatch_mouse_event_with_context(root, &event);
+        assert!(result.consumed);
+        assert!(result.redraw_requested);
     }
 }

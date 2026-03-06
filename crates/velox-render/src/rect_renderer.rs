@@ -1,5 +1,4 @@
 use bytemuck::{Pod, Zeroable};
-use wgpu::util::DeviceExt;
 
 use crate::gpu::GpuContext;
 
@@ -31,6 +30,8 @@ pub struct RectRenderer {
     uniform_bind_group: wgpu::BindGroup,
     vertices: Vec<RectVertex>,
     vertex_buffer: Option<wgpu::Buffer>,
+    vertex_capacity: usize,
+    vertex_count: u32,
 }
 
 impl RectRenderer {
@@ -134,6 +135,8 @@ impl RectRenderer {
             uniform_bind_group,
             vertices: Vec::new(),
             vertex_buffer: None,
+            vertex_capacity: 0,
+            vertex_count: 0,
         }
     }
 
@@ -146,6 +149,7 @@ impl RectRenderer {
             .write_buffer(&self.uniform_buffer, 0, bytemuck::bytes_of(&uniform));
 
         self.vertices.clear();
+        self.vertices.reserve(rects.len() * 6);
         for r in rects {
             let x0 = r.x;
             let y0 = r.y;
@@ -179,26 +183,39 @@ impl RectRenderer {
             });
         }
 
-        self.vertex_buffer = if self.vertices.is_empty() {
-            None
-        } else {
-            Some(
-                gpu.device
-                    .create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                        label: Some("rect_vertices"),
-                        contents: bytemuck::cast_slice(&self.vertices),
-                        usage: wgpu::BufferUsages::VERTEX,
-                    }),
-            )
-        };
+        self.vertex_count = self.vertices.len() as u32;
+        if self.vertices.is_empty() {
+            return;
+        }
+
+        let needed_vertices = self.vertices.len();
+        if needed_vertices > self.vertex_capacity {
+            let capacity = needed_vertices.next_power_of_two();
+            let size = (capacity * std::mem::size_of::<RectVertex>()) as u64;
+            self.vertex_buffer = Some(gpu.device.create_buffer(&wgpu::BufferDescriptor {
+                label: Some("rect_vertices"),
+                size,
+                usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+                mapped_at_creation: false,
+            }));
+            self.vertex_capacity = capacity;
+        }
+
+        if let Some(vb) = &self.vertex_buffer {
+            gpu.queue
+                .write_buffer(vb, 0, bytemuck::cast_slice(&self.vertices));
+        }
     }
 
     pub fn render<'a>(&'a self, render_pass: &mut wgpu::RenderPass<'a>) {
+        if self.vertex_count == 0 {
+            return;
+        }
         if let Some(ref vb) = self.vertex_buffer {
             render_pass.set_pipeline(&self.pipeline);
             render_pass.set_bind_group(0, &self.uniform_bind_group, &[]);
             render_pass.set_vertex_buffer(0, vb.slice(..));
-            render_pass.draw(0..self.vertices.len() as u32, 0..1);
+            render_pass.draw(0..self.vertex_count, 0..1);
         }
     }
 }

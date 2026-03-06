@@ -12,6 +12,7 @@ use velox_window::{WindowConfig, WindowId, WindowManager};
 struct WindowState {
     scene: Scene,
     surface: WindowSurface,
+    needs_redraw: bool,
 }
 
 pub(crate) struct VeloxHandler {
@@ -50,6 +51,33 @@ impl VeloxHandler {
             current_modifiers: winit::keyboard::ModifiersState::default(),
             cursor_position: velox_scene::Point::new(0.0, 0.0),
             clipboard: None,
+        }
+    }
+
+    fn request_pending_redraws(&mut self) {
+        let pending: Vec<WindowId> = self
+            .windows
+            .iter()
+            .filter_map(|(id, ws)| ws.needs_redraw.then_some(*id))
+            .collect();
+
+        for id in pending {
+            if let Some(ws) = self.windows.get_mut(&id) {
+                ws.needs_redraw = false;
+            }
+            if let Some(managed) = self.window_manager.get_window(id) {
+                managed.window().request_redraw();
+            }
+        }
+    }
+
+    fn clipboard_read_text(&mut self) -> Option<String> {
+        self.clipboard.as_mut().and_then(|c| c.get_text().ok())
+    }
+
+    fn clipboard_write_text(&mut self, text: String) {
+        if let Some(clipboard) = self.clipboard.as_mut() {
+            let _ = clipboard.set_text(text);
         }
     }
 }
@@ -98,6 +126,7 @@ impl ApplicationHandler for VeloxHandler {
             WindowState {
                 scene: first_scene,
                 surface: first_surface,
+                needs_redraw: true,
             },
         );
 
@@ -116,6 +145,7 @@ impl ApplicationHandler for VeloxHandler {
                         WindowState {
                             scene: Scene::new(),
                             surface,
+                            needs_redraw: true,
                         },
                     );
                 }
@@ -153,6 +183,7 @@ impl ApplicationHandler for VeloxHandler {
             WindowEvent::Resized(size) => {
                 if let (Some(gpu), Some(ws)) = (&self.gpu, self.windows.get_mut(&velox_id)) {
                     ws.surface.resize(gpu, size.width, size.height);
+                    ws.needs_redraw = true;
                 }
             }
             WindowEvent::RedrawRequested => {
@@ -174,6 +205,7 @@ impl ApplicationHandler for VeloxHandler {
                             wgpu::SurfaceError::Lost | wgpu::SurfaceError::Outdated => {
                                 ws.surface
                                     .resize(gpu, ws.surface.width(), ws.surface.height());
+                                ws.needs_redraw = true;
                             }
                             wgpu::SurfaceError::OutOfMemory => {
                                 eprintln!("[velox] GPU out of memory");
@@ -197,19 +229,29 @@ impl ApplicationHandler for VeloxHandler {
                     return;
                 }
 
-                if let Some(ws) = self.windows.get_mut(&velox_id) {
-                    if let Some(focused) = ws.scene.focus().focused() {
-                        let text = event.text.as_ref().map(|t| t.to_string());
-                        let key_event = velox_scene::KeyEvent {
-                            key: velox_key,
-                            modifiers,
-                            state: crate::key_convert::convert_element_state(event.state),
-                            text,
-                        };
-                        ws.scene
-                            .tree_mut()
-                            .dispatch_key_event(focused, &key_event);
+                let clipboard_read = self.clipboard_read_text();
+                let mut clipboard_write = None;
+                if let Some(ws) = self.windows.get_mut(&velox_id)
+                    && let Some(focused) = ws.scene.focus().focused()
+                {
+                    let text = event.text.as_ref().map(|t| t.to_string());
+                    let key_event = velox_scene::KeyEvent {
+                        key: velox_key,
+                        modifiers,
+                        state: crate::key_convert::convert_element_state(event.state),
+                        text,
+                    };
+                    let result = ws
+                        .scene
+                        .tree_mut()
+                        .dispatch_key_event_with_context(focused, &key_event, clipboard_read);
+                    if result.redraw_requested {
+                        ws.needs_redraw = true;
                     }
+                    clipboard_write = result.clipboard_write;
+                }
+                if let Some(text) = clipboard_write {
+                    self.clipboard_write_text(text);
                 }
             }
             WindowEvent::ModifiersChanged(mods) => {
@@ -223,10 +265,15 @@ impl ApplicationHandler for VeloxHandler {
                 if state == winit::event::ElementState::Pressed
                     && button == winit::event::MouseButton::Left
                 {
+                    let mut clipboard_write = None;
                     if let Some(ws) = self.windows.get_mut(&velox_id) {
                         let point = self.cursor_position;
                         if let Some(hit_id) = ws.scene.hit_test(point) {
+                            let was_focused = ws.scene.focus().focused();
                             ws.scene.focus_mut().request_focus(hit_id);
+                            if was_focused != Some(hit_id) {
+                                ws.needs_redraw = true;
+                            }
                             let node_rect = ws
                                 .scene
                                 .tree()
@@ -245,10 +292,18 @@ impl ApplicationHandler for VeloxHandler {
                                     self.current_modifiers,
                                 ),
                             };
-                            ws.scene
+                            let result = ws
+                                .scene
                                 .tree_mut()
-                                .dispatch_mouse_event(hit_id, &mouse_event);
+                                .dispatch_mouse_event_with_context(hit_id, &mouse_event);
+                            if result.redraw_requested {
+                                ws.needs_redraw = true;
+                            }
+                            clipboard_write = result.clipboard_write;
                         }
+                    }
+                    if let Some(text) = clipboard_write {
+                        self.clipboard_write_text(text);
                     }
                 }
             }
@@ -258,6 +313,6 @@ impl ApplicationHandler for VeloxHandler {
 
     fn about_to_wait(&mut self, _event_loop: &ActiveEventLoop) {
         self.runtime.flush();
-        self.window_manager.request_redraws();
+        self.request_pending_redraws();
     }
 }

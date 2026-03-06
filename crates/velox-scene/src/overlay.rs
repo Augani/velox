@@ -66,6 +66,12 @@ impl OverlayStack {
         self.overlays.iter().map(|e| e.id).collect()
     }
 
+    pub fn for_each_tree_mut(&mut self, mut f: impl FnMut(&mut NodeTree)) {
+        for entry in &mut self.overlays {
+            f(&mut entry.tree);
+        }
+    }
+
     pub fn hit_test(&self, point: Point) -> Option<(OverlayId, NodeId)> {
         for entry in self.overlays.iter().rev() {
             if let Some(node_id) = entry.tree.hit_test(point) {

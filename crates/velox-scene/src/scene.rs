@@ -52,21 +52,15 @@ impl Scene {
 
     pub fn layout(&mut self) {
         self.tree.run_layout();
-        for id in self.overlay_stack.ids() {
-            if let Some(tree) = self.overlay_stack.overlay_tree_mut(id) {
-                tree.run_layout();
-            }
-        }
+        self.overlay_stack
+            .for_each_tree_mut(|tree| tree.run_layout());
     }
 
     pub fn paint(&mut self) {
         self.command_list.clear();
         self.tree.run_paint(&mut self.command_list);
-        for id in self.overlay_stack.ids() {
-            if let Some(tree) = self.overlay_stack.overlay_tree_mut(id) {
-                tree.run_paint(&mut self.command_list);
-            }
-        }
+        self.overlay_stack
+            .for_each_tree_mut(|tree| tree.run_paint(&mut self.command_list));
     }
 
     pub fn hit_test(&self, point: Point) -> Option<NodeId> {

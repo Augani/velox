@@ -1,4 +1,5 @@
 use std::cell::RefCell;
+use std::collections::HashMap;
 use std::rc::Rc;
 
 use velox::prelude::*;
@@ -8,10 +9,19 @@ use velox::scene::{
 };
 use velox::text::{CursorDirection, EditableText, FontSystem, GlyphRasterizer};
 
+#[derive(Clone, Copy)]
+struct GlyphMetrics {
+    width: u32,
+    height: u32,
+    left: i32,
+    top: i32,
+}
+
 struct TextInputState {
     editable: EditableText,
     font_system: FontSystem,
     rasterizer: GlyphRasterizer,
+    glyph_metrics: HashMap<velox::text::cosmic_text::CacheKey, GlyphMetrics>,
     focused: bool,
     cursor_visible: bool,
 }
@@ -27,6 +37,7 @@ impl TextInputState {
             editable,
             font_system: fs,
             rasterizer: GlyphRasterizer::new(),
+            glyph_metrics: HashMap::new(),
             focused: true,
             cursor_visible: true,
         }
@@ -44,6 +55,7 @@ impl Painter for TextInputPainter {
             editable,
             font_system,
             rasterizer,
+            glyph_metrics,
             focused,
             cursor_visible,
         } = &mut *state;
@@ -66,36 +78,49 @@ impl Painter for TextInputPainter {
         for run in editable.buffer().layout_runs() {
             for glyph in run.glyphs.iter() {
                 let physical = glyph.physical((0.0, 0.0), 1.0);
-                if let Some(rasterized) = rasterizer.rasterize(font_system, physical.cache_key) {
-                    if rasterized.width > 0 && rasterized.height > 0 {
-                        commands.upload_glyph(
-                            physical.cache_key,
-                            rasterized.width,
-                            rasterized.height,
-                            rasterized.data,
-                        );
-                        glyphs.push(PositionedGlyph {
-                            cache_key: physical.cache_key,
-                            x: rect.x + physical.x as f32 + rasterized.left as f32,
-                            y: rect.y + run.line_y + physical.y as f32 - rasterized.top as f32,
-                            width: rasterized.width as f32,
-                            height: rasterized.height as f32,
-                        });
+                let Some(metrics) = glyph_metrics.get(&physical.cache_key).copied().or_else(|| {
+                    let rasterized = rasterizer.rasterize(font_system, physical.cache_key)?;
+                    if rasterized.width == 0 || rasterized.height == 0 {
+                        return None;
                     }
-                }
+
+                    commands.upload_glyph(
+                        physical.cache_key,
+                        rasterized.width,
+                        rasterized.height,
+                        rasterized.data,
+                    );
+
+                    let metrics = GlyphMetrics {
+                        width: rasterized.width,
+                        height: rasterized.height,
+                        left: rasterized.left,
+                        top: rasterized.top,
+                    };
+                    glyph_metrics.insert(physical.cache_key, metrics);
+                    Some(metrics)
+                }) else {
+                    continue;
+                };
+
+                glyphs.push(PositionedGlyph {
+                    cache_key: physical.cache_key,
+                    x: rect.x + physical.x as f32 + metrics.left as f32,
+                    y: rect.y + run.line_y + physical.y as f32 - metrics.top as f32,
+                    width: metrics.width as f32,
+                    height: metrics.height as f32,
+                });
             }
         }
         if !glyphs.is_empty() {
             commands.draw_glyphs(glyphs, Color::rgb(230, 230, 240));
         }
 
-        if *focused && *cursor_visible {
-            if let Some(cr) = editable.cursor_rect() {
-                commands.fill_rect(
-                    Rect::new(rect.x + cr.x, rect.y + cr.y, cr.width, cr.height),
-                    Color::rgb(200, 200, 220),
-                );
-            }
+        if *focused && *cursor_visible && let Some(cr) = editable.cursor_rect() {
+            commands.fill_rect(
+                Rect::new(rect.x + cr.x, rect.y + cr.y, cr.width, cr.height),
+                Color::rgb(200, 200, 220),
+            );
         }
     }
 }

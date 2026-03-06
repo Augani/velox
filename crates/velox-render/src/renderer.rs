@@ -9,6 +9,8 @@ use crate::surface::WindowSurface;
 pub struct Renderer {
     rect_renderer: RectRenderer,
     glyph_renderer: GlyphRenderer,
+    rect_scratch: Vec<RectData>,
+    glyph_scratch: Vec<GlyphQuad>,
 }
 
 impl Renderer {
@@ -16,6 +18,8 @@ impl Renderer {
         Self {
             rect_renderer: RectRenderer::new(gpu, target_format),
             glyph_renderer: GlyphRenderer::new(gpu, target_format),
+            rect_scratch: Vec::new(),
+            glyph_scratch: Vec::new(),
         }
     }
 
@@ -30,13 +34,13 @@ impl Renderer {
             atlas.insert(upload.cache_key, upload.width, upload.height, &upload.data);
         }
 
-        let mut rects = Vec::new();
-        let mut glyph_quads = Vec::new();
+        self.rect_scratch.clear();
+        self.glyph_scratch.clear();
 
         for cmd in commands.commands() {
             match cmd {
                 PaintCommand::FillRect { rect, color } => {
-                    rects.push(RectData {
+                    self.rect_scratch.push(RectData {
                         x: rect.x,
                         y: rect.y,
                         width: rect.width,
@@ -47,28 +51,28 @@ impl Renderer {
                 PaintCommand::StrokeRect { rect, color, width } => {
                     let w = *width;
                     let c = color_to_f32(color);
-                    rects.push(RectData {
+                    self.rect_scratch.push(RectData {
                         x: rect.x,
                         y: rect.y,
                         width: rect.width,
                         height: w,
                         color: c,
                     });
-                    rects.push(RectData {
+                    self.rect_scratch.push(RectData {
                         x: rect.x,
                         y: rect.y + rect.height - w,
                         width: rect.width,
                         height: w,
                         color: c,
                     });
-                    rects.push(RectData {
+                    self.rect_scratch.push(RectData {
                         x: rect.x,
                         y: rect.y + w,
                         width: w,
                         height: rect.height - 2.0 * w,
                         color: c,
                     });
-                    rects.push(RectData {
+                    self.rect_scratch.push(RectData {
                         x: rect.x + rect.width - w,
                         y: rect.y + w,
                         width: w,
@@ -81,7 +85,7 @@ impl Renderer {
                     for glyph in glyphs {
                         if let Some(region) = atlas.get(&glyph.cache_key) {
                             let uv = atlas.uv(region);
-                            glyph_quads.push(GlyphQuad {
+                            self.glyph_scratch.push(GlyphQuad {
                                 x: glyph.x,
                                 y: glyph.y,
                                 width: glyph.width,
@@ -97,10 +101,10 @@ impl Renderer {
         }
 
         self.rect_renderer
-            .prepare(gpu, surface.width(), surface.height(), &rects);
+            .prepare(gpu, surface.width(), surface.height(), &self.rect_scratch);
 
         self.glyph_renderer
-            .prepare(gpu, surface.width(), surface.height(), &glyph_quads);
+            .prepare(gpu, surface.width(), surface.height(), &self.glyph_scratch);
 
         if atlas.is_dirty() {
             self.glyph_renderer.upload_atlas(gpu, atlas);
