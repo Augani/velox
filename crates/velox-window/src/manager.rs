@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::sync::Arc;
 
 use winit::event_loop::ActiveEventLoop;
 
@@ -6,13 +7,17 @@ use crate::config::WindowConfig;
 use crate::window_id::WindowId;
 
 pub struct ManagedWindow {
-    window: winit::window::Window,
+    window: Arc<winit::window::Window>,
     label: String,
 }
 
 impl ManagedWindow {
     pub fn window(&self) -> &winit::window::Window {
         &self.window
+    }
+
+    pub fn window_arc(&self) -> Arc<winit::window::Window> {
+        self.window.clone()
     }
 
     pub fn label(&self) -> &str {
@@ -38,7 +43,7 @@ impl WindowManager {
     ) -> Result<WindowId, winit::error::OsError> {
         let label = config.id_label().to_owned();
         let attrs = config.to_window_attributes();
-        let window = event_loop.create_window(attrs)?;
+        let window = Arc::new(event_loop.create_window(attrs)?);
         let id = WindowId::from_winit(window.id());
         self.windows.insert(id, ManagedWindow { window, label });
         Ok(id)

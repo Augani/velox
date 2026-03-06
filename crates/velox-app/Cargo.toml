@@ -6,7 +6,10 @@ edition.workspace = true
 [dependencies]
 velox-reactive = { workspace = true }
 velox-platform = { workspace = true }
+velox-render = { workspace = true }
 velox-runtime = { workspace = true }
 velox-scene = { workspace = true }
+velox-text = { workspace = true }
 velox-window = { workspace = true }
+wgpu = { workspace = true }
 winit = { workspace = true }

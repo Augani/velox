@@ -1910,8 +1910,10 @@ dependencies = [
  "velox-app",
  "velox-platform",
  "velox-reactive",
+ "velox-render",
  "velox-runtime",
  "velox-scene",
+ "velox-text",
  "velox-window",
 ]
 
@@ -1921,9 +1923,12 @@ version = "0.1.0"
 dependencies = [
  "velox-platform",
  "velox-reactive",
+ "velox-render",
  "velox-runtime",
  "velox-scene",
+ "velox-text",
  "velox-window",
+ "wgpu",
  "winit",
 ]
 
@@ -1959,6 +1964,7 @@ dependencies = [
 name = "velox-scene"
 version = "0.1.0"
 dependencies = [
+ "bitflags 2.11.0",
  "slotmap",
  "velox-reactive",
 ]
