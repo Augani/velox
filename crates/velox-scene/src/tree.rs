@@ -1,6 +1,7 @@
 use slotmap::SlotMap;
 
 use crate::geometry::Rect;
+use crate::layout::Layout;
 use crate::node::NodeId;
 use crate::paint::CommandList;
 use crate::painter::Painter;
@@ -14,6 +15,7 @@ pub(crate) struct NodeData {
     pub(crate) paint_dirty: bool,
     pub(crate) hit_test_transparent: bool,
     pub(crate) painter: Option<Box<dyn Painter>>,
+    pub(crate) layout: Option<Box<dyn Layout>>,
 }
 
 impl NodeData {
@@ -27,6 +29,7 @@ impl NodeData {
             paint_dirty: true,
             hit_test_transparent: false,
             painter: None,
+            layout: None,
         }
     }
 }
@@ -241,6 +244,47 @@ impl NodeTree {
 
         if let Some(data) = self.nodes.get_mut(id) {
             data.paint_dirty = false;
+        }
+    }
+
+    pub fn set_layout(&mut self, id: NodeId, layout: impl Layout + 'static) {
+        if let Some(node) = self.nodes.get_mut(id) {
+            node.layout = Some(Box::new(layout));
+            node.layout_dirty = true;
+        }
+    }
+
+    pub fn run_layout(&mut self) {
+        let Some(root) = self.root else { return };
+        self.layout_node(root);
+    }
+
+    fn layout_node(&mut self, id: NodeId) {
+        let Some(data) = self.nodes.get(id) else {
+            return;
+        };
+
+        let is_dirty = data.layout_dirty;
+        let has_layout = data.layout.is_some();
+        let rect = data.rect;
+        let children = data.children.clone();
+
+        if is_dirty && has_layout {
+            let layout = self.nodes.get_mut(id).and_then(|d| d.layout.take());
+            if let Some(ref l) = layout {
+                l.compute(rect, &children, self);
+            }
+            if let Some(data) = self.nodes.get_mut(id) {
+                data.layout = layout;
+            }
+        }
+
+        if let Some(data) = self.nodes.get_mut(id) {
+            data.layout_dirty = false;
+        }
+
+        for child in children {
+            self.layout_node(child);
         }
     }
 }
