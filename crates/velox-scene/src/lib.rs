@@ -9,3 +9,7 @@ pub use tree::NodeTree;
 mod paint;
 
 pub use paint::{Color, CommandList, PaintCommand};
+
+mod focus;
+
+pub use focus::{FocusChange, FocusState};
