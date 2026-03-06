@@ -2,7 +2,7 @@
 pub struct WindowId(winit::window::WindowId);
 
 impl WindowId {
-    pub(crate) fn from_winit(id: winit::window::WindowId) -> Self {
+    pub fn from_winit(id: winit::window::WindowId) -> Self {
         Self(id)
     }
 

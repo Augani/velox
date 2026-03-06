@@ -7,6 +7,7 @@ edition.workspace = true
 velox-reactive = { workspace = true }
 velox-platform = { workspace = true }
 velox-runtime = { workspace = true }
+velox-scene = { workspace = true }
 velox-window = { workspace = true }
 velox-app = { workspace = true }
 
