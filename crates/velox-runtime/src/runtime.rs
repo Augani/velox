@@ -1,6 +1,7 @@
+use std::any::Any;
 use std::future::Future;
 
-use crate::executor::{ComputePool, DeliverQueue, IoExecutor, UiQueue};
+use crate::executor::{ComputePool, DeliverQueue, IoExecutor, TaskId, UiQueue};
 use crate::frame_clock::FrameClock;
 use crate::power::{PowerClass, PowerPolicy};
 
@@ -22,31 +23,54 @@ impl Runtime {
         RuntimeBuilder::default()
     }
 
-    pub fn spawn_ui(&mut self, task: Box<dyn FnOnce() + Send>) {
-        self.ui_queue.push(task);
+    pub fn spawn_ui(&mut self, task: impl FnOnce() + Send + 'static) {
+        self.ui_queue.push(Box::new(task));
     }
 
-    pub fn spawn_compute<F>(&self, task: F)
+    pub fn spawn_compute<T, F>(&mut self, work: F) -> TaskId
     where
-        F: FnOnce() + Send + 'static,
+        T: Send + 'static,
+        F: FnOnce() -> T + Send + 'static,
     {
-        self.compute_pool.spawn(task);
+        let task_id = self.deliver_queue.register_placeholder();
+        let sender = self.deliver_queue.sender();
+        self.compute_pool.spawn(move || {
+            let result = work();
+            let _ = sender.send((task_id, Box::new(result) as Box<dyn Any + Send>));
+        });
+        task_id
     }
 
-    pub fn spawn_compute_with_class<F>(&self, class: PowerClass, task: F)
+    pub fn spawn_compute_with_class<T, F>(&mut self, class: PowerClass, work: F) -> Option<TaskId>
     where
-        F: FnOnce() + Send + 'static,
+        T: Send + 'static,
+        F: FnOnce() -> T + Send + 'static,
     {
-        if self.power_policy.should_run(class) {
-            self.compute_pool.spawn(task);
+        if !self.power_policy.should_run(class) {
+            return None;
         }
+        Some(self.spawn_compute(work))
     }
 
-    pub fn spawn_io<F>(&self, future: F)
+    pub fn spawn_io<T, F>(&mut self, future: F) -> TaskId
     where
-        F: Future<Output = ()> + Send + 'static,
+        T: Send + 'static,
+        F: Future<Output = T> + Send + 'static,
     {
-        self.io_executor.spawn(future);
+        let task_id = self.deliver_queue.register_placeholder();
+        let sender = self.deliver_queue.sender();
+        self.io_executor.spawn(async move {
+            let result = future.await;
+            let _ = sender.send((task_id, Box::new(result) as Box<dyn Any + Send>));
+        });
+        task_id
+    }
+
+    pub fn register_deliver<F>(&mut self, task_id: TaskId, callback: F)
+    where
+        F: FnOnce(Box<dyn Any + Send>) + Send + 'static,
+    {
+        self.deliver_queue.register_for(task_id, callback);
     }
 
     pub fn tick(&mut self) {
@@ -54,6 +78,7 @@ impl Runtime {
     }
 
     pub fn flush(&mut self) {
+        self.frame_clock.tick();
         self.ui_queue.flush();
         self.deliver_queue.flush();
     }
@@ -72,6 +97,11 @@ impl Runtime {
 
     pub fn set_power_policy(&mut self, policy: PowerPolicy) {
         self.power_policy = policy;
+    }
+
+    pub fn with_power_policy(mut self, policy: PowerPolicy) -> Self {
+        self.power_policy = policy;
+        self
     }
 }
 

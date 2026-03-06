@@ -8,8 +8,8 @@ pub enum PowerClass {
 
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum PowerPolicy {
-    #[default]
     Performance,
+    #[default]
     Adaptive,
     Saving,
 }
@@ -17,8 +17,7 @@ pub enum PowerPolicy {
 impl PowerPolicy {
     pub fn should_run(&self, class: PowerClass) -> bool {
         match self {
-            PowerPolicy::Performance => true,
-            PowerPolicy::Adaptive => !matches!(class, PowerClass::Background),
+            PowerPolicy::Performance | PowerPolicy::Adaptive => true,
             PowerPolicy::Saving => matches!(class, PowerClass::Essential | PowerClass::Interactive),
         }
     }

@@ -6,4 +6,5 @@ mod runtime;
 
 pub use cancellation::CancellationToken;
 pub use frame_clock::FrameClock;
+pub use power::{PowerClass, PowerPolicy};
 pub use runtime::{Runtime, RuntimeBuilder};
