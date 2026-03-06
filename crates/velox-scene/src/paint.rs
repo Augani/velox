@@ -1,5 +1,13 @@
 use crate::Rect;
 
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum BlendMode {
+    Normal,
+    Multiply,
+    Screen,
+    Overlay,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct TextureId(pub u64);
 
@@ -53,6 +61,18 @@ pub enum PaintCommand {
     },
     PushClip(Rect),
     PopClip,
+    PushLayer {
+        opacity: f32,
+        blend_mode: BlendMode,
+    },
+    PopLayer,
+    BoxShadow {
+        rect: Rect,
+        color: Color,
+        blur_radius: f32,
+        offset: crate::geometry::Point,
+        spread: f32,
+    },
 }
 
 pub struct GlyphUpload {
@@ -118,6 +138,37 @@ impl CommandList {
     pub fn pop_clip(&mut self) {
         self.bump_epoch();
         self.commands.push(PaintCommand::PopClip);
+    }
+
+    pub fn push_layer(&mut self, opacity: f32, blend_mode: BlendMode) {
+        self.bump_epoch();
+        self.commands.push(PaintCommand::PushLayer {
+            opacity,
+            blend_mode,
+        });
+    }
+
+    pub fn pop_layer(&mut self) {
+        self.bump_epoch();
+        self.commands.push(PaintCommand::PopLayer);
+    }
+
+    pub fn box_shadow(
+        &mut self,
+        rect: Rect,
+        color: Color,
+        blur_radius: f32,
+        offset: crate::geometry::Point,
+        spread: f32,
+    ) {
+        self.bump_epoch();
+        self.commands.push(PaintCommand::BoxShadow {
+            rect,
+            color,
+            blur_radius,
+            offset,
+            spread,
+        });
     }
 
     pub fn upload_glyph(
@@ -248,6 +299,32 @@ mod tests {
         let c = TextureId(2);
         assert_eq!(a, b);
         assert_ne!(a, c);
+    }
+
+    #[test]
+    fn push_pop_layer_commands() {
+        let mut list = CommandList::new();
+        list.push_layer(0.5, BlendMode::Normal);
+        list.fill_rect(Rect::new(0.0, 0.0, 100.0, 100.0), Color::rgb(255, 0, 0));
+        list.pop_layer();
+        assert_eq!(list.commands().len(), 3);
+        assert!(matches!(list.commands()[0], PaintCommand::PushLayer { .. }));
+        assert!(matches!(list.commands()[2], PaintCommand::PopLayer));
+    }
+
+    #[test]
+    fn box_shadow_command() {
+        use crate::geometry::Point;
+        let mut list = CommandList::new();
+        list.box_shadow(
+            Rect::new(10.0, 10.0, 100.0, 50.0),
+            Color::rgba(0, 0, 0, 128),
+            8.0,
+            Point::new(2.0, 4.0),
+            0.0,
+        );
+        assert_eq!(list.commands().len(), 1);
+        assert!(matches!(list.commands()[0], PaintCommand::BoxShadow { .. }));
     }
 
     #[test]
