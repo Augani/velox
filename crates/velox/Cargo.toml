@@ -9,6 +9,7 @@ velox-platform = { workspace = true }
 velox-render = { workspace = true }
 velox-runtime = { workspace = true }
 velox-scene = { workspace = true }
+velox-style = { workspace = true }
 velox-text = { workspace = true }
 velox-window = { workspace = true }
 velox-app = { workspace = true }
@@ -24,3 +25,6 @@ name = "phase3_demo"
 
 [[example]]
 name = "phase4_demo"
+
+[[example]]
+name = "phase5_demo"

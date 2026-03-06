@@ -10,6 +10,7 @@ members = [
     "crates/velox-scene",
     "crates/velox-text",
     "crates/velox-render",
+    "crates/velox-style",
 ]
 
 [workspace.package]
@@ -28,6 +29,7 @@ velox-app = { path = "crates/velox-app" }
 velox-scene = { path = "crates/velox-scene" }
 velox-text = { path = "crates/velox-text" }
 velox-render = { path = "crates/velox-render" }
+velox-style = { path = "crates/velox-style" }
 winit = "0.30"
 slotmap = "1"
 tokio = { version = "1", features = ["rt-multi-thread", "time", "sync"] }

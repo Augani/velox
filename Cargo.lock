@@ -2181,6 +2181,7 @@ dependencies = [
  "velox-render",
  "velox-runtime",
  "velox-scene",
+ "velox-style",
  "velox-text",
  "velox-window",
 ]
@@ -2236,6 +2237,13 @@ dependencies = [
  "bitflags 2.11.0",
  "cosmic-text",
  "slotmap",
+ "velox-reactive",
+]
+
+[[package]]
+name = "velox-style"
+version = "0.1.0"
+dependencies = [
  "velox-reactive",
 ]
 

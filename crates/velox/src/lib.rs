@@ -4,6 +4,7 @@ pub use velox_reactive as reactive;
 pub use velox_render as render;
 pub use velox_runtime as runtime;
 pub use velox_scene as scene;
+pub use velox_style as style;
 pub use velox_text as text;
 pub use velox_window as window;
 
@@ -16,6 +17,7 @@ pub mod prelude {
         EventContext, EventHandler, KeyEvent, MouseEvent, NodeId, NodeTree, Point, Rect, Scene,
         Size,
     };
+    pub use velox_style::{Palette, Theme, ThemeColor, ThemeManager};
     pub use velox_text::{EditableText, FontSystem, TextBuffer, TextSelection};
     pub use velox_window::WindowConfig;
 }

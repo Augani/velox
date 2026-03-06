@@ -25,6 +25,14 @@ pub struct GlyphQuad {
     pub height: f32,
     pub uv: [f32; 4],
     pub color: [f32; 4],
+    pub clip: Option<[u32; 4]>,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+struct DrawBatch {
+    start: u32,
+    count: u32,
+    clip: Option<[u32; 4]>,
 }
 
 pub struct GlyphRenderer {
@@ -40,6 +48,9 @@ pub struct GlyphRenderer {
     vertex_buffer: Option<wgpu::Buffer>,
     vertex_capacity: usize,
     vertex_count: u32,
+    draw_batches: Vec<DrawBatch>,
+    surface_width: u32,
+    surface_height: u32,
 }
 
 impl GlyphRenderer {
@@ -164,6 +175,9 @@ impl GlyphRenderer {
             vertex_buffer: None,
             vertex_capacity: 0,
             vertex_count: 0,
+            draw_batches: Vec::new(),
+            surface_width: 1,
+            surface_height: 1,
         }
     }
 
@@ -244,6 +258,8 @@ impl GlyphRenderer {
     }
 
     pub fn prepare(&mut self, gpu: &GpuContext, width: u32, height: u32, quads: &[GlyphQuad]) {
+        self.surface_width = width.max(1);
+        self.surface_height = height.max(1);
         let uniform = ScreenUniform {
             screen_size: [width as f32, height as f32],
             _padding: [0.0; 2],
@@ -251,9 +267,15 @@ impl GlyphRenderer {
         gpu.queue
             .write_buffer(&self.uniform_buffer, 0, bytemuck::bytes_of(&uniform));
 
+        self.draw_batches.clear();
         self.vertices.clear();
         self.vertices.reserve(quads.len() * 6);
         for q in quads {
+            if q.width <= 0.0 || q.height <= 0.0 {
+                continue;
+            }
+
+            let start = self.vertices.len() as u32;
             let x0 = q.x;
             let y0 = q.y;
             let x1 = q.x + q.width;
@@ -291,6 +313,8 @@ impl GlyphRenderer {
                 uv: [u1, v1],
                 color: c,
             });
+
+            self.push_batch(start, 6, q.clip);
         }
 
         self.vertex_count = self.vertices.len() as u32;
@@ -318,7 +342,7 @@ impl GlyphRenderer {
     }
 
     pub fn render<'a>(&'a self, render_pass: &mut wgpu::RenderPass<'a>) {
-        if self.vertex_count == 0 {
+        if self.vertex_count == 0 || self.draw_batches.is_empty() {
             return;
         }
         let (Some(vb), Some(bg)) = (&self.vertex_buffer, &self.bind_group) else {
@@ -327,6 +351,31 @@ impl GlyphRenderer {
         render_pass.set_pipeline(&self.pipeline);
         render_pass.set_bind_group(0, bg, &[]);
         render_pass.set_vertex_buffer(0, vb.slice(..));
-        render_pass.draw(0..self.vertex_count, 0..1);
+        for batch in &self.draw_batches {
+            let [x, y, w, h] = batch
+                .clip
+                .unwrap_or([0, 0, self.surface_width, self.surface_height]);
+            if w == 0 || h == 0 {
+                continue;
+            }
+            render_pass.set_scissor_rect(x, y, w, h);
+            render_pass.draw(batch.start..(batch.start + batch.count), 0..1);
+        }
+    }
+
+    fn push_batch(&mut self, start: u32, count: u32, clip: Option<[u32; 4]>) {
+        if count == 0 {
+            return;
+        }
+
+        if let Some(last) = self.draw_batches.last_mut()
+            && last.clip == clip
+            && last.start + last.count == start
+        {
+            last.count += count;
+            return;
+        }
+
+        self.draw_batches.push(DrawBatch { start, count, clip });
     }
 }

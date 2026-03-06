@@ -1,0 +1,7 @@
+[package]
+name = "velox-style"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+velox-reactive = { workspace = true }

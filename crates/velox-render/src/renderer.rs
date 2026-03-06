@@ -1,4 +1,4 @@
-use velox_scene::{Color, CommandList, PaintCommand};
+use velox_scene::{Color, CommandList, PaintCommand, Rect};
 
 use crate::glyph_atlas::GlyphAtlas;
 use crate::glyph_renderer::{GlyphQuad, GlyphRenderer};
@@ -43,23 +43,57 @@ impl Renderer {
             for upload in commands.glyph_uploads() {
                 atlas.insert(upload.cache_key, upload.width, upload.height, &upload.data);
             }
+        }
 
+        if commands_changed || surface_changed {
             self.rect_scratch.clear();
             self.glyph_scratch.clear();
+            let mut clip_stack: Vec<Option<Rect>> = Vec::new();
 
             for cmd in commands.commands() {
                 match cmd {
                     PaintCommand::FillRect { rect, color } => {
+                        let clip = match clip_stack.last().copied() {
+                            Some(None) => continue,
+                            Some(Some(active)) => {
+                                let Some(clip) =
+                                    rect_to_scissor(active, surface.width(), surface.height())
+                                else {
+                                    continue;
+                                };
+                                Some(clip)
+                            }
+                            None => None,
+                        };
+
                         self.rect_scratch.push(RectData {
                             x: rect.x,
                             y: rect.y,
                             width: rect.width,
                             height: rect.height,
                             color: color_to_f32(color),
+                            clip,
                         });
                     }
                     PaintCommand::StrokeRect { rect, color, width } => {
                         let w = *width;
+                        if w <= 0.0 {
+                            continue;
+                        }
+
+                        let clip = match clip_stack.last().copied() {
+                            Some(None) => continue,
+                            Some(Some(active)) => {
+                                let Some(clip) =
+                                    rect_to_scissor(active, surface.width(), surface.height())
+                                else {
+                                    continue;
+                                };
+                                Some(clip)
+                            }
+                            None => None,
+                        };
+
                         let c = color_to_f32(color);
                         self.rect_scratch.push(RectData {
                             x: rect.x,
@@ -67,6 +101,7 @@ impl Renderer {
                             width: rect.width,
                             height: w,
                             color: c,
+                            clip,
                         });
                         self.rect_scratch.push(RectData {
                             x: rect.x,
@@ -74,6 +109,7 @@ impl Renderer {
                             width: rect.width,
                             height: w,
                             color: c,
+                            clip,
                         });
                         self.rect_scratch.push(RectData {
                             x: rect.x,
@@ -81,6 +117,7 @@ impl Renderer {
                             width: w,
                             height: rect.height - 2.0 * w,
                             color: c,
+                            clip,
                         });
                         self.rect_scratch.push(RectData {
                             x: rect.x + rect.width - w,
@@ -88,9 +125,23 @@ impl Renderer {
                             width: w,
                             height: rect.height - 2.0 * w,
                             color: c,
+                            clip,
                         });
                     }
                     PaintCommand::DrawGlyphs { glyphs, color } => {
+                        let clip = match clip_stack.last().copied() {
+                            Some(None) => continue,
+                            Some(Some(active)) => {
+                                let Some(clip) =
+                                    rect_to_scissor(active, surface.width(), surface.height())
+                                else {
+                                    continue;
+                                };
+                                Some(clip)
+                            }
+                            None => None,
+                        };
+
                         let c = color_to_f32(color);
                         for glyph in glyphs {
                             if let Some(region) = atlas.get(&glyph.cache_key) {
@@ -102,11 +153,22 @@ impl Renderer {
                                     height: glyph.height,
                                     uv,
                                     color: c,
+                                    clip,
                                 });
                             }
                         }
                     }
-                    PaintCommand::PushClip(_) | PaintCommand::PopClip => {}
+                    PaintCommand::PushClip(rect) => {
+                        let next_clip = match clip_stack.last().copied() {
+                            None => Some(*rect),
+                            Some(None) => None,
+                            Some(Some(current)) => intersect_rect(current, *rect),
+                        };
+                        clip_stack.push(next_clip);
+                    }
+                    PaintCommand::PopClip => {
+                        let _ = clip_stack.pop();
+                    }
                 }
             }
         }
@@ -175,4 +237,33 @@ fn color_to_f32(c: &Color) -> [f32; 4] {
         c.b as f32 / 255.0,
         c.a as f32 / 255.0,
     ]
+}
+
+fn intersect_rect(a: Rect, b: Rect) -> Option<Rect> {
+    let x0 = a.x.max(b.x);
+    let y0 = a.y.max(b.y);
+    let x1 = (a.x + a.width).min(b.x + b.width);
+    let y1 = (a.y + a.height).min(b.y + b.height);
+    let w = x1 - x0;
+    let h = y1 - y0;
+    if w <= 0.0 || h <= 0.0 {
+        return None;
+    }
+    Some(Rect::new(x0, y0, w, h))
+}
+
+fn rect_to_scissor(rect: Rect, surface_width: u32, surface_height: u32) -> Option<[u32; 4]> {
+    let sw = surface_width as f32;
+    let sh = surface_height as f32;
+
+    let x0 = rect.x.max(0.0).floor();
+    let y0 = rect.y.max(0.0).floor();
+    let x1 = (rect.x + rect.width).min(sw).ceil();
+    let y1 = (rect.y + rect.height).min(sh).ceil();
+
+    if x1 <= x0 || y1 <= y0 {
+        return None;
+    }
+
+    Some([x0 as u32, y0 as u32, (x1 - x0) as u32, (y1 - y0) as u32])
 }
