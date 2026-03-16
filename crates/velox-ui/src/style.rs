@@ -66,6 +66,21 @@ pub enum CursorStyle {
     NotAllowed,
     Move,
     Crosshair,
+    Wait,
+    Progress,
+    Help,
+    ZoomIn,
+    ZoomOut,
+    ResizeN,
+    ResizeS,
+    ResizeE,
+    ResizeW,
+    ResizeNE,
+    ResizeNW,
+    ResizeSE,
+    ResizeSW,
+    ResizeEW,
+    ResizeNS,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

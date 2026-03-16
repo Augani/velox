@@ -11,8 +11,8 @@ velox-render = { workspace = true }
 velox-runtime = { workspace = true }
 velox-scene = { workspace = true }
 velox-style = { workspace = true }
+velox-ui = { workspace = true }
 velox-text = { workspace = true }
 velox-window = { workspace = true }
 wgpu = { workspace = true }
 winit = { workspace = true }
-arboard = { workspace = true }

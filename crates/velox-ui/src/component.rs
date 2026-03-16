@@ -23,6 +23,23 @@ pub trait Component: 'static + Sized {
     fn render(&self, cx: &ViewContext) -> AnyElement;
 }
 
+pub trait Render: Sized {
+    fn render(self) -> AnyElement;
+}
+
+#[macro_export]
+macro_rules! impl_component {
+    ($($name:ty),+ $(,)?) => {
+        $(
+            impl $crate::parent::IntoAnyElement for $name {
+                fn into_any_element(self) -> $crate::element::AnyElement {
+                    $crate::component::Render::render(self)
+                }
+            }
+        )+
+    };
+}
+
 pub struct ComponentHost<C: Component> {
     component: C,
     subscriptions: Vec<Subscription>,

@@ -1,27 +1,44 @@
 use std::collections::HashMap;
 
-use crate::element::{AnyElement, ElementKey};
+use crate::element::{AnyElement, ElementKey, LayoutContext};
+use crate::interactive::EventHandlers;
 use crate::layout_engine::LayoutEngine;
 use crate::style::Style;
 use std::any::TypeId;
 use velox_scene::{NodeId, NodeTree, Point, Rect};
 
-#[derive(Clone)]
 pub struct ReconcilerSlot {
     pub node_id: NodeId,
     pub taffy_node: taffy::NodeId,
     pub element_type: TypeId,
     pub key: Option<ElementKey>,
     pub style: Style,
+    pub taffy_style: taffy::Style,
+    pub handlers: Option<EventHandlers>,
     pub children: Vec<ReconcilerSlot>,
+}
+
+impl Clone for ReconcilerSlot {
+    fn clone(&self) -> Self {
+        Self {
+            node_id: self.node_id,
+            taffy_node: self.taffy_node,
+            element_type: self.element_type,
+            key: self.key,
+            style: self.style.clone(),
+            taffy_style: self.taffy_style.clone(),
+            handlers: self.handlers.clone(),
+            children: self.children.clone(),
+        }
+    }
 }
 
 #[derive(Debug)]
 pub enum Patch {
-    UpdateStyle {
+    UpdateNode {
         node_id: NodeId,
         taffy_node: taffy::NodeId,
-        style: Style,
+        taffy_style: taffy::Style,
         layout_changed: bool,
     },
     CreateNode {
@@ -51,11 +68,12 @@ impl Reconciler {
         parent_node: Option<NodeId>,
         tree: &mut NodeTree,
         engine: &mut LayoutEngine,
+        font_system: &mut velox_text::FontSystem,
     ) -> Vec<taffy::NodeId> {
         let mut taffy_children = Vec::new();
 
         for element in elements.iter_mut() {
-            let slot = self.mount_element(element, parent_node, tree, engine);
+            let slot = self.mount_element(element, parent_node, tree, engine, font_system);
             taffy_children.push(slot.taffy_node);
             self.slots.push(slot);
         }
@@ -69,25 +87,68 @@ impl Reconciler {
         parent_node: Option<NodeId>,
         tree: &mut NodeTree,
         engine: &mut LayoutEngine,
+        font_system: &mut velox_text::FontSystem,
     ) -> ReconcilerSlot {
         let node_id = tree.insert(parent_node);
+        let handlers = element.take_handlers();
+
+        let (child_slots, child_taffy_nodes) = {
+            let child_elements = element.children_mut();
+            let mut slots = Vec::new();
+            let mut taffy_nodes = Vec::new();
+
+            for child in child_elements.iter_mut() {
+                let child_slot =
+                    self.mount_element(child, Some(node_id), tree, engine, font_system);
+                taffy_nodes.push(child_slot.taffy_node);
+                slots.push(child_slot);
+            }
+
+            (slots, taffy_nodes)
+        };
+
+        self.finish_mount(
+            element,
+            node_id,
+            handlers,
+            child_slots,
+            child_taffy_nodes,
+            engine,
+            font_system,
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn finish_mount(
+        &self,
+        element: &mut AnyElement,
+        node_id: NodeId,
+        handlers: EventHandlers,
+        child_slots: Vec<ReconcilerSlot>,
+        child_taffy_nodes: Vec<taffy::NodeId>,
+        engine: &mut LayoutEngine,
+        font_system: &mut velox_text::FontSystem,
+    ) -> ReconcilerSlot {
+        let layout_req = {
+            let mut layout_cx = LayoutContext {
+                taffy: &mut engine.taffy,
+                font_system,
+            };
+            element.layout(&mut layout_cx)
+        };
         let style = element.style().clone();
 
-        let child_elements = element.children_mut();
-        let mut child_slots = Vec::new();
-        let mut child_taffy_nodes = Vec::new();
-
-        for child in child_elements.iter_mut() {
-            let child_slot = self.mount_element(child, Some(node_id), tree, engine);
-            child_taffy_nodes.push(child_slot.taffy_node);
-            child_slots.push(child_slot);
-        }
+        let taffy_style = layout_req.taffy_style;
 
         let taffy_node = if child_taffy_nodes.is_empty() {
-            engine.new_leaf(&style).expect("taffy new_leaf")
+            engine
+                .taffy
+                .new_leaf(taffy_style.clone())
+                .expect("taffy new_leaf")
         } else {
             engine
-                .new_with_children(&style, &child_taffy_nodes)
+                .taffy
+                .new_with_children(taffy_style.clone(), &child_taffy_nodes)
                 .expect("taffy new_with_children")
         };
 
@@ -97,6 +158,8 @@ impl Reconciler {
             element_type: element.element_type_id(),
             key: element.key,
             style,
+            taffy_style,
+            handlers: Some(handlers),
             children: child_slots,
         }
     }
@@ -133,10 +196,15 @@ impl Reconciler {
         &self.slots
     }
 
-    pub fn unmount(&self, tree: &mut NodeTree, engine: &mut LayoutEngine) {
+    pub fn slots_mut(&mut self) -> &mut [ReconcilerSlot] {
+        &mut self.slots
+    }
+
+    pub fn unmount(&mut self, tree: &mut NodeTree, engine: &mut LayoutEngine) {
         for slot in &self.slots {
             self.unmount_slot(slot, tree, engine);
         }
+        self.slots.clear();
     }
 
     fn unmount_slot(&self, slot: &ReconcilerSlot, tree: &mut NodeTree, engine: &mut LayoutEngine) {
@@ -153,6 +221,7 @@ impl Reconciler {
         parent_node: Option<NodeId>,
         tree: &mut NodeTree,
         engine: &mut LayoutEngine,
+        font_system: &mut velox_text::FontSystem,
     ) -> Vec<Patch> {
         let mut patches = Vec::new();
         let old_slots = std::mem::take(&mut self.slots);
@@ -189,13 +258,21 @@ impl Reconciler {
                 let old = &old_slots[idx];
 
                 if old.element_type == new_el.element_type_id() {
+                    let layout_req = {
+                        let mut layout_cx = LayoutContext {
+                            taffy: &mut engine.taffy,
+                            font_system,
+                        };
+                        new_el.layout(&mut layout_cx)
+                    };
                     let new_style = new_el.style().clone();
-                    let layout_changed = old.style.is_layout_affecting_different(&new_style);
-                    if old.style != new_style {
-                        patches.push(Patch::UpdateStyle {
+                    let new_taffy_style = layout_req.taffy_style;
+                    let layout_changed = old.taffy_style != new_taffy_style;
+                    if old.style != new_style || layout_changed {
+                        patches.push(Patch::UpdateNode {
                             node_id: old.node_id,
                             taffy_node: old.taffy_node,
-                            style: new_style.clone(),
+                            taffy_style: new_taffy_style.clone(),
                             layout_changed,
                         });
                     }
@@ -208,24 +285,40 @@ impl Reconciler {
                         Some(old.node_id),
                         tree,
                         engine,
+                        font_system,
                     );
                     patches.extend(child_patches);
-
+                    let new_child_taffy_nodes: Vec<_> = child_reconciler
+                        .slots
+                        .iter()
+                        .map(|slot| slot.taffy_node)
+                        .collect();
+                    let old_child_taffy_nodes: Vec<_> =
+                        old.children.iter().map(|slot| slot.taffy_node).collect();
+                    let children_changed = old_child_taffy_nodes != new_child_taffy_nodes;
+                    if children_changed {
+                        engine
+                            .set_children(old.taffy_node, &new_child_taffy_nodes)
+                            .ok();
+                    }
+                    let new_handlers = new_el.take_handlers();
                     new_slots.push(ReconcilerSlot {
                         node_id: old.node_id,
                         taffy_node: old.taffy_node,
                         element_type: old.element_type,
                         key: new_el.key,
                         style: new_el.style().clone(),
+                        taffy_style: new_taffy_style,
+                        handlers: Some(new_handlers),
                         children: child_reconciler.slots,
                     });
                 } else {
                     self.collect_removes(old, &mut patches);
-                    let slot = self.mount_element(new_el, parent_node, tree, engine);
+                    let slot = self.mount_element(new_el, parent_node, tree, engine, font_system);
                     new_slots.push(slot);
                 }
             } else {
-                let slot = self.mount_element(new_el, parent_node, tree, engine);
+                let slot = self.mount_element(new_el, parent_node, tree, engine, font_system);
                 new_slots.push(slot);
             }
         }
@@ -253,13 +346,15 @@ impl Reconciler {
     pub fn apply_patches(patches: &[Patch], tree: &mut NodeTree, engine: &mut LayoutEngine) {
         for patch in patches {
             match patch {
-                Patch::UpdateStyle {
+                Patch::UpdateNode {
                     node_id,
                     taffy_node,
-                    style,
+                    taffy_style,
                     layout_changed,
                 } => {
-                    engine.set_style(*taffy_node, style).ok();
+                    engine
+                        .set_taffy_style(*taffy_node, taffy_style.clone())
+                        .ok();
                     if *layout_changed {
                         tree.mark_layout_dirty(*node_id);
                     } else {
@@ -298,6 +393,7 @@ mod tests {
         let mut tree = NodeTree::new();
         let mut engine = LayoutEngine::new();
         let mut reconciler = Reconciler::new();
+        let mut fs = velox_text::FontSystem::new();
 
         let root_node = tree.insert(None);
         tree.set_rect(root_node, Rect::new(0.0, 0.0, 800.0, 600.0));
@@ -305,7 +401,13 @@ mod tests {
         let d = div().w(px(100.0)).h(px(50.0));
         let mut elements = vec![d.into_any_element()];
 
-        let taffy_ids = reconciler.mount(&mut elements, Some(root_node), &mut tree, &mut engine);
+        let taffy_ids = reconciler.mount(
+            &mut elements,
+            Some(root_node),
+            &mut tree,
+            &mut engine,
+            &mut fs,
+        );
         assert_eq!(taffy_ids.len(), 1);
         assert_eq!(reconciler.slots().len(), 1);
         assert!(tree.contains(reconciler.slots()[0].node_id));
@@ -316,6 +418,7 @@ mod tests {
         let mut tree = NodeTree::new();
         let mut engine = LayoutEngine::new();
         let mut reconciler = Reconciler::new();
+        let mut fs = velox_text::FontSystem::new();
 
         let root_node = tree.insert(None);
         tree.set_rect(root_node, Rect::new(0.0, 0.0, 800.0, 600.0));
@@ -328,7 +431,13 @@ mod tests {
             .child(div().w(px(80.0)).h(px(40.0)));
 
         let mut elements = vec![d.into_any_element()];
-        reconciler.mount(&mut elements, Some(root_node), &mut tree, &mut engine);
+        reconciler.mount(
+            &mut elements,
+            Some(root_node),
+            &mut tree,
+            &mut engine,
+            &mut fs,
+        );
 
         assert_eq!(reconciler.slots().len(), 1);
         assert_eq!(reconciler.slots()[0].children.len(), 2);
@@ -339,6 +448,7 @@ mod tests {
         let mut tree = NodeTree::new();
         let mut engine = LayoutEngine::new();
         let mut reconciler = Reconciler::new();
+        let mut fs = velox_text::FontSystem::new();
 
         let root_node = tree.insert(None);
         tree.set_rect(root_node, Rect::new(0.0, 0.0, 400.0, 300.0));
@@ -351,7 +461,13 @@ mod tests {
             .child(div().w(px(200.0)).h(px(100.0)));
 
         let mut elements = vec![d.into_any_element()];
-        let taffy_roots = reconciler.mount(&mut elements, Some(root_node), &mut tree, &mut engine);
+        let taffy_roots = reconciler.mount(
+            &mut elements,
+            Some(root_node),
+            &mut tree,
+            &mut engine,
+            &mut fs,
+        );
 
         let root_taffy = taffy_roots[0];
         engine
@@ -381,11 +497,18 @@ mod tests {
         let mut tree = NodeTree::new();
         let mut engine = LayoutEngine::new();
         let mut reconciler = Reconciler::new();
+        let mut fs = velox_text::FontSystem::new();
 
         let root_node = tree.insert(None);
         let d = div().w(px(100.0));
         let mut elements = vec![d.into_any_element()];
-        reconciler.mount(&mut elements, Some(root_node), &mut tree, &mut engine);
+        reconciler.mount(
+            &mut elements,
+            Some(root_node),
+            &mut tree,
+            &mut engine,
+            &mut fs,
+        );
 
         let mounted_id = reconciler.slots()[0].node_id;
         assert!(tree.contains(mounted_id));
@@ -399,6 +522,7 @@ mod tests {
         let mut tree = NodeTree::new();
         let mut engine = LayoutEngine::new();
         let mut reconciler = Reconciler::new();
+        let mut fs = velox_text::FontSystem::new();
 
         let root = tree.insert(None);
         tree.set_rect(root, Rect::new(0.0, 0.0, 400.0, 300.0));
@@ -408,19 +532,19 @@ mod tests {
             .h(px(50.0))
             .bg(velox_scene::Color::rgb(255, 0, 0));
         let mut elements1 = vec![d1.into_any_element()];
-        reconciler.mount(&mut elements1, Some(root), &mut tree, &mut engine);
+        reconciler.mount(&mut elements1, Some(root), &mut tree, &mut engine, &mut fs);
 
         let d2 = div()
             .w(px(100.0))
             .h(px(50.0))
             .bg(velox_scene::Color::rgb(0, 255, 0));
         let mut elements2 = vec![d2.into_any_element()];
-        let patches = reconciler.diff(&mut elements2, Some(root), &mut tree, &mut engine);
+        let patches = reconciler.diff(&mut elements2, Some(root), &mut tree, &mut engine, &mut fs);
 
         assert!(!patches.is_empty());
         assert!(matches!(
             patches[0],
-            Patch::UpdateStyle {
+            Patch::UpdateNode {
                 layout_changed: false,
                 ..
             }
@@ -432,19 +556,20 @@ mod tests {
         let mut tree = NodeTree::new();
         let mut engine = LayoutEngine::new();
         let mut reconciler = Reconciler::new();
+        let mut fs = velox_text::FontSystem::new();
 
         let root = tree.insert(None);
         let d1 = div().w(px(100.0));
         let mut elements1 = vec![d1.into_any_element()];
-        reconciler.mount(&mut elements1, Some(root), &mut tree, &mut engine);
+        reconciler.mount(&mut elements1, Some(root), &mut tree, &mut engine, &mut fs);
 
         let d2 = div().w(px(200.0));
         let mut elements2 = vec![d2.into_any_element()];
-        let patches = reconciler.diff(&mut elements2, Some(root), &mut tree, &mut engine);
+        let patches = reconciler.diff(&mut elements2, Some(root), &mut tree, &mut engine, &mut fs);
 
         assert!(matches!(
             patches[0],
-            Patch::UpdateStyle {
+            Patch::UpdateNode {
                 layout_changed: true,
                 ..
             }
@@ -456,14 +581,15 @@ mod tests {
         let mut tree = NodeTree::new();
         let mut engine = LayoutEngine::new();
         let mut reconciler = Reconciler::new();
+        let mut fs = velox_text::FontSystem::new();
 
         let root = tree.insert(None);
         let mut els = vec![div().into_any_element(), div().into_any_element()];
-        reconciler.mount(&mut els, Some(root), &mut tree, &mut engine);
+        reconciler.mount(&mut els, Some(root), &mut tree, &mut engine, &mut fs);
         assert_eq!(reconciler.slots().len(), 2);
 
         let mut els2 = vec![div().into_any_element()];
-        let patches = reconciler.diff(&mut els2, Some(root), &mut tree, &mut engine);
+        let patches = reconciler.diff(&mut els2, Some(root), &mut tree, &mut engine, &mut fs);
 
         assert!(patches
             .iter()
@@ -476,16 +602,17 @@ mod tests {
         let mut tree = NodeTree::new();
         let mut engine = LayoutEngine::new();
         let mut reconciler = Reconciler::new();
+        let mut fs = velox_text::FontSystem::new();
 
         let root = tree.insert(None);
         let mut els = vec![div().into_any_element()];
-        reconciler.mount(&mut els, Some(root), &mut tree, &mut engine);
+        reconciler.mount(&mut els, Some(root), &mut tree, &mut engine, &mut fs);
 
         let mut els2 = vec![
             div().into_any_element(),
             div().w(px(50.0)).into_any_element(),
         ];
-        let _patches = reconciler.diff(&mut els2, Some(root), &mut tree, &mut engine);
+        let _patches = reconciler.diff(&mut els2, Some(root), &mut tree, &mut engine, &mut fs);
         assert_eq!(reconciler.slots().len(), 2);
     }
 
@@ -496,6 +623,7 @@ mod tests {
         let mut tree = NodeTree::new();
         let mut engine = LayoutEngine::new();
         let mut reconciler = Reconciler::new();
+        let mut fs = velox_text::FontSystem::new();
 
         let root = tree.insert(None);
 
@@ -504,7 +632,7 @@ mod tests {
             div().w(px(20.0)).key(2).into_any_element(),
             div().w(px(30.0)).key(3).into_any_element(),
         ];
-        reconciler.mount(&mut els, Some(root), &mut tree, &mut engine);
+        reconciler.mount(&mut els, Some(root), &mut tree, &mut engine, &mut fs);
 
         let old_node_1 = reconciler.slots()[0].node_id;
         let old_node_2 = reconciler.slots()[1].node_id;
@@ -515,7 +643,7 @@ mod tests {
             div().w(px(10.0)).key(1).into_any_element(),
             div().w(px(20.0)).key(2).into_any_element(),
         ];
-        reconciler.diff(&mut reordered, Some(root), &mut tree, &mut engine);
+        reconciler.diff(&mut reordered, Some(root), &mut tree, &mut engine, &mut fs);
 
         assert_eq!(reconciler.slots()[0].node_id, old_node_3);
         assert_eq!(reconciler.slots()[1].node_id, old_node_1);
@@ -529,6 +657,7 @@ mod tests {
         let mut tree = NodeTree::new();
         let mut engine = LayoutEngine::new();
         let mut reconciler = Reconciler::new();
+        let mut fs = velox_text::FontSystem::new();
 
         let root = tree.insert(None);
 
@@ -536,14 +665,14 @@ mod tests {
             div().key(1).into_any_element(),
             div().key(2).into_any_element(),
         ];
-        reconciler.mount(&mut els, Some(root), &mut tree, &mut engine);
+        reconciler.mount(&mut els, Some(root), &mut tree, &mut engine, &mut fs);
         let node_2 = reconciler.slots()[1].node_id;
 
         let mut new_els = vec![
             div().key(2).into_any_element(),
             div().key(3).into_any_element(),
         ];
-        let patches = reconciler.diff(&mut new_els, Some(root), &mut tree, &mut engine);
+        let patches = reconciler.diff(&mut new_els, Some(root), &mut tree, &mut engine, &mut fs);
 
         assert_eq!(reconciler.slots()[0].node_id, node_2);
         assert!(patches
@@ -558,16 +687,17 @@ mod tests {
         let mut tree = NodeTree::new();
         let mut engine = LayoutEngine::new();
         let mut reconciler = Reconciler::new();
+        let mut fs = velox_text::FontSystem::new();
 
         let root = tree.insert(None);
 
         let mut els = vec![div().key(1).into_any_element(), div().into_any_element()];
-        reconciler.mount(&mut els, Some(root), &mut tree, &mut engine);
+        reconciler.mount(&mut els, Some(root), &mut tree, &mut engine, &mut fs);
         let keyed_node = reconciler.slots()[0].node_id;
         let unkeyed_node = reconciler.slots()[1].node_id;
 
         let mut new_els = vec![div().into_any_element(), div().key(1).into_any_element()];
-        reconciler.diff(&mut new_els, Some(root), &mut tree, &mut engine);
+        reconciler.diff(&mut new_els, Some(root), &mut tree, &mut engine, &mut fs);
 
         assert_eq!(reconciler.slots()[0].node_id, unkeyed_node);
         assert_eq!(reconciler.slots()[1].node_id, keyed_node);

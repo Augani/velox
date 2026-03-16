@@ -1,5 +1,7 @@
+use crate::accessibility::{AccessibilityProps, AccessibleElement};
 use crate::element::{
-    AnyElement, Element, HasStyle, IntoElement, LayoutContext, LayoutRequest, PaintContext,
+    AccessibilityInfo, AnyElement, Element, HasStyle, IntoElement, LayoutContext, LayoutRequest,
+    PaintContext,
 };
 use crate::parent::IntoAnyElement;
 use crate::style::Style;
@@ -9,12 +11,14 @@ use velox_scene::{PositionedGlyph, Rect};
 pub struct TextElement {
     pub(crate) content: String,
     pub(crate) style: Style,
+    pub(crate) accessibility: AccessibilityProps,
 }
 
 pub fn text(content: impl Into<String>) -> TextElement {
     TextElement {
         content: content.into(),
         style: Style::new(),
+        accessibility: AccessibilityProps::default(),
     }
 }
 
@@ -27,6 +31,12 @@ impl Styled for TextElement {
 impl HasStyle for TextElement {
     fn get_style(&self) -> &Style {
         &self.style
+    }
+}
+
+impl AccessibleElement for TextElement {
+    fn accessibility_props_mut(&mut self) -> &mut AccessibilityProps {
+        &mut self.accessibility
     }
 }
 
@@ -94,6 +104,46 @@ impl TextState {
 impl Element for TextElement {
     type State = TextState;
 
+    fn accessibility(
+        &mut self,
+        state: &mut TextState,
+        _children: &[AnyElement],
+    ) -> AccessibilityInfo {
+        let text_runs = state
+            .buffer
+            .as_ref()
+            .map(|buffer| buffer.accessibility_runs(&self.content))
+            .unwrap_or_default()
+            .into_iter()
+            .map(|run| {
+                velox_scene::AccessibilityTextRun::new(
+                    run.text,
+                    run.byte_start,
+                    Rect::new(run.x, run.y, run.width, run.height),
+                )
+            })
+            .collect();
+
+        if self.accessibility.is_empty() {
+            AccessibilityInfo {
+                node: None,
+                text_content: Some(self.content.clone()),
+                text_runs,
+            }
+        } else {
+            AccessibilityInfo {
+                node: Some(self.accessibility.resolve(
+                    velox_scene::AccessibilityRole::Label,
+                    Some(self.content.clone()),
+                    None,
+                    false,
+                )),
+                text_content: Some(self.content.clone()),
+                text_runs,
+            }
+        }
+    }
+
     fn layout(
         &mut self,
         state: &mut TextState,
@@ -155,38 +205,39 @@ impl Element for TextElement {
             return;
         };
 
+        let sf = cx.scale_factor();
         let mut glyphs = Vec::new();
-        let mut uploads = Vec::new();
 
         for run in buffer.layout_runs() {
             for glyph in run.glyphs.iter() {
-                let physical = glyph.physical((0.0, 0.0), 1.0);
+                let physical = glyph.physical((0.0, 0.0), sf);
 
                 let rasterized = cx
                     .glyph_rasterizer
                     .rasterize(cx.font_system, physical.cache_key);
 
-                if let Some(raster) = rasterized.as_ref().filter(|r| r.width > 0 && r.height > 0) {
-                    uploads.push((
-                        physical.cache_key,
-                        raster.width,
-                        raster.height,
-                        raster.data.clone(),
-                    ));
+                let Some(raster) = rasterized else {
+                    continue;
+                };
+                if raster.width == 0 || raster.height == 0 {
+                    continue;
                 }
+
+                cx.commands().upload_glyph(
+                    physical.cache_key,
+                    raster.width,
+                    raster.height,
+                    raster.data,
+                );
 
                 glyphs.push(PositionedGlyph {
                     cache_key: physical.cache_key,
-                    x: bounds.x + physical.x as f32,
-                    y: bounds.y + run.line_y + physical.y as f32,
-                    width: glyph.w,
-                    height: run.line_height,
+                    x: bounds.x + physical.x as f32 / sf + raster.left as f32 / sf,
+                    y: bounds.y + run.line_y + physical.y as f32 / sf - raster.top as f32 / sf,
+                    width: raster.width as f32 / sf,
+                    height: raster.height as f32 / sf,
                 });
             }
-        }
-
-        for (cache_key, width, height, data) in uploads {
-            cx.commands().upload_glyph(cache_key, width, height, data);
         }
 
         if !glyphs.is_empty() {
@@ -285,6 +336,10 @@ mod tests {
             glyph_rasterizer: &mut glyph_rasterizer,
             hovered_node: None,
             active_node: None,
+            focused_node: None,
+            scroll_offset_x: 0.0,
+            scroll_offset_y: 0.0,
+            scale_factor: 1.0,
         };
         el.paint(&mut state, bounds, &mut cx);
 
@@ -312,6 +367,10 @@ mod tests {
             glyph_rasterizer: &mut glyph_rasterizer,
             hovered_node: None,
             active_node: None,
+            focused_node: None,
+            scroll_offset_x: 0.0,
+            scroll_offset_y: 0.0,
+            scale_factor: 1.0,
         };
         el.paint(&mut state, bounds, &mut cx);
 

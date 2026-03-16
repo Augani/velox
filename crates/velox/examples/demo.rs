@@ -326,7 +326,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .setup(move |scene| {
             let settings =
                 SettingsStore::open(settings_path()).expect("Failed to open settings store");
-            let state = Rc::new(RefCell::new(DemoState::new(setup_manager, settings)));
+            let state = Rc::new(RefCell::new(DemoState::new(
+                setup_manager.clone(),
+                settings,
+            )));
 
             let root = scene.tree_mut().insert(None);
             scene
@@ -342,7 +345,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             scene
                 .tree_mut()
                 .set_event_handler(root, DemoHandler { state });
-            scene.focus_mut().request_focus(root);
+            scene.request_focus(root);
         })
         .run()
 }

@@ -4505,7 +4505,6 @@ dependencies = [
 name = "velox-app"
 version = "0.1.0"
 dependencies = [
- "arboard",
  "velox-animation",
  "velox-platform",
  "velox-reactive",
@@ -4514,6 +4513,7 @@ dependencies = [
  "velox-scene",
  "velox-style",
  "velox-text",
+ "velox-ui",
  "velox-window",
  "wgpu",
  "winit",
@@ -4558,12 +4558,14 @@ version = "0.1.0"
 dependencies = [
  "accesskit",
  "accesskit_winit",
+ "arboard",
  "muda",
  "notify-rust",
  "rfd",
  "slotmap",
  "tray-icon",
  "velox-scene",
+ "winit",
 ]
 
 [[package]]
@@ -4638,6 +4640,7 @@ name = "velox-ui"
 version = "0.1.0"
 dependencies = [
  "bumpalo",
+ "slotmap",
  "taffy",
  "velox-list",
  "velox-reactive",

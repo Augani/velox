@@ -1,4 +1,4 @@
-use crate::length::{pct, Length};
+use crate::length::{Length, pct};
 use crate::style::*;
 use velox_scene::Color;
 
@@ -542,11 +542,7 @@ pub trait Styled: Sized {
     }
 
     fn when(self, condition: bool, then: impl FnOnce(Self) -> Self) -> Self {
-        if condition {
-            then(self)
-        } else {
-            self
-        }
+        if condition { then(self) } else { self }
     }
 
     fn apply(mut self, refinement: &Style) -> Self {

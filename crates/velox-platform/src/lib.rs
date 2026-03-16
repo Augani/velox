@@ -8,9 +8,12 @@ pub mod power;
 mod stub;
 pub mod tray;
 
-pub use accessibility_bridge::AccessibilityBridge;
+pub use accessibility_bridge::{
+    AccessibilityActionKind, AccessibilityActionRequest, AccessibilityBridge,
+    WindowAccessibilityAdapter,
+};
 pub use app::PlatformApp;
-pub use clipboard::PlatformClipboard;
+pub use clipboard::{NativeClipboard, PlatformClipboard};
 pub use file_dialog::{NativeFileDialog, PlatformFileDialog};
 pub use menu::{MenuItem, PlatformMenu};
 pub use notification::{NativeNotification, PlatformNotification};

@@ -85,6 +85,11 @@ pub enum PaintCommand {
         blend_mode: BlendMode,
     },
     PopLayer,
+    FillRoundedRect {
+        rect: Rect,
+        color: Color,
+        corner_radius: f32,
+    },
     BoxShadow {
         rect: Rect,
         color: Color,
@@ -109,6 +114,7 @@ pub struct CommandList {
     commands: Vec<PaintCommand>,
     glyph_uploads: Vec<GlyphUpload>,
     epoch: u64,
+    scale_factor: f32,
 }
 
 impl CommandList {
@@ -117,7 +123,16 @@ impl CommandList {
             commands: Vec::new(),
             glyph_uploads: Vec::new(),
             epoch: 0,
+            scale_factor: 1.0,
         }
+    }
+
+    pub fn scale_factor(&self) -> f32 {
+        self.scale_factor
+    }
+
+    pub fn set_scale_factor(&mut self, scale_factor: f32) {
+        self.scale_factor = scale_factor;
     }
 
     pub fn fill_rect(&mut self, rect: Rect, color: Color) {
@@ -176,6 +191,23 @@ impl CommandList {
         self.commands.push(PaintCommand::PopLayer);
     }
 
+    pub fn fill_rounded_rect(&mut self, rect: Rect, color: Color, corner_radius: f32) {
+        self.bump_epoch();
+        self.commands.push(PaintCommand::FillRoundedRect {
+            rect,
+            color,
+            corner_radius,
+        });
+    }
+
+    pub fn fill_circle(&mut self, cx: f32, cy: f32, radius: f32, color: Color) {
+        self.fill_rounded_rect(
+            Rect::new(cx - radius, cy - radius, radius * 2.0, radius * 2.0),
+            color,
+            radius,
+        );
+    }
+
     pub fn fill_gradient(&mut self, rect: Rect, gradient: Gradient) {
         self.bump_epoch();
         self.commands
@@ -222,6 +254,19 @@ impl CommandList {
 
     pub fn commands(&self) -> &[PaintCommand] {
         &self.commands
+    }
+
+    pub fn commands_len(&self) -> usize {
+        self.commands.len()
+    }
+
+    pub fn commands_slice(&self, from: usize) -> &[PaintCommand] {
+        &self.commands[from..]
+    }
+
+    pub fn extend_commands(&mut self, cmds: &[PaintCommand]) {
+        self.bump_epoch();
+        self.commands.extend_from_slice(cmds);
     }
 
     pub fn epoch(&self) -> u64 {

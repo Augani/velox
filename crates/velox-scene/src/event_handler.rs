@@ -6,6 +6,8 @@ pub struct EventContext {
     redraw: bool,
     clipboard_read: Option<String>,
     clipboard_write: Option<String>,
+    accessibility_value: Option<Option<String>>,
+    accessibility_text_selection: Option<Option<crate::AccessibilityTextSelection>>,
 }
 
 impl EventContext {
@@ -15,6 +17,8 @@ impl EventContext {
             redraw: false,
             clipboard_read: None,
             clipboard_write: None,
+            accessibility_value: None,
+            accessibility_text_selection: None,
         }
     }
 
@@ -45,6 +49,27 @@ impl EventContext {
     pub fn take_clipboard_write(&mut self) -> Option<String> {
         self.clipboard_write.take()
     }
+
+    pub fn set_accessibility_value(&mut self, value: Option<String>) {
+        self.accessibility_value = Some(value);
+    }
+
+    pub fn take_accessibility_value(&mut self) -> Option<Option<String>> {
+        self.accessibility_value.take()
+    }
+
+    pub fn set_accessibility_text_selection(
+        &mut self,
+        selection: Option<crate::AccessibilityTextSelection>,
+    ) {
+        self.accessibility_text_selection = Some(selection);
+    }
+
+    pub fn take_accessibility_text_selection(
+        &mut self,
+    ) -> Option<Option<crate::AccessibilityTextSelection>> {
+        self.accessibility_text_selection.take()
+    }
 }
 
 pub trait EventHandler: 'static {
@@ -62,6 +87,15 @@ pub trait EventHandler: 'static {
 
     fn handle_ime(&mut self, event: &crate::ime::ImeEvent, ctx: &mut EventContext) -> bool {
         let _ = (event, ctx);
+        false
+    }
+
+    fn handle_accessibility_action(
+        &mut self,
+        action: &crate::AccessibilityAction,
+        ctx: &mut EventContext,
+    ) -> bool {
+        let _ = (action, ctx);
         false
     }
 
@@ -114,6 +148,34 @@ mod tests {
         assert!(!ctx.redraw_requested());
         ctx.request_redraw();
         assert!(ctx.redraw_requested());
+    }
+
+    #[test]
+    fn event_context_tracks_accessibility_value_updates() {
+        let mut ctx = EventContext::new(Rect::new(0.0, 0.0, 100.0, 50.0));
+        ctx.set_accessibility_value(Some(String::from("Hello")));
+        assert_eq!(
+            ctx.take_accessibility_value(),
+            Some(Some(String::from("Hello")))
+        );
+        assert_eq!(ctx.take_accessibility_value(), None);
+    }
+
+    #[test]
+    fn event_context_tracks_accessibility_selection_updates() {
+        let mut ctx = EventContext::new(Rect::new(0.0, 0.0, 100.0, 50.0));
+        ctx.set_accessibility_text_selection(Some(crate::AccessibilityTextSelection {
+            anchor: 1,
+            focus: 4,
+        }));
+        assert_eq!(
+            ctx.take_accessibility_text_selection(),
+            Some(Some(crate::AccessibilityTextSelection {
+                anchor: 1,
+                focus: 4,
+            }))
+        );
+        assert_eq!(ctx.take_accessibility_text_selection(), None);
     }
 
     #[test]

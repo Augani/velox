@@ -51,7 +51,8 @@ impl WindowManager {
         config: WindowConfig,
     ) -> Result<WindowId, winit::error::OsError> {
         let label = config.id_label().to_owned();
-        let attrs = config.to_window_attributes();
+        // AccessKit adapters must be created before the window is first shown.
+        let attrs = config.to_window_attributes().with_visible(false);
         let window = Arc::new(event_loop.create_window(attrs)?);
         let scale_factor = window.scale_factor();
         let id = WindowId::from_winit(window.id());

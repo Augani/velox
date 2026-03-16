@@ -19,7 +19,9 @@ pub use painter::Painter;
 
 mod accessibility;
 pub use accessibility::{
-    AccessibilityNode, AccessibilityRole, AccessibilityTreeNode, AccessibilityTreeSnapshot,
+    AccessibilityAction, AccessibilityActionSupport, AccessibilityNode, AccessibilityRole,
+    AccessibilityTextRun, AccessibilityTextSelection, AccessibilityTreeNode,
+    AccessibilityTreeSnapshot,
 };
 
 mod focus;

@@ -8,7 +8,7 @@ mod virtual_list;
 
 pub use callbacks::ListCallbacks;
 pub use height::{CumulativeHeightCache, FixedHeight, HeightProvider};
-pub use range::{compute_expanded, ExpandedRanges, ViewportRange};
+pub use range::{ExpandedRanges, ViewportRange, compute_expanded};
 pub use scroll::{ScrollAnchor, ScrollState};
 pub use sticky::StickyHeaderState;
 pub use virtual_grid::VirtualGrid;

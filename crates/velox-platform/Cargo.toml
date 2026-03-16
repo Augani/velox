@@ -12,3 +12,5 @@ accesskit = { workspace = true }
 accesskit_winit = { workspace = true }
 velox-scene = { workspace = true }
 slotmap = { workspace = true }
+arboard = { workspace = true }
+winit = { workspace = true }

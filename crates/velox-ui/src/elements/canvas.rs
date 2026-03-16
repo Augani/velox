@@ -96,6 +96,10 @@ mod tests {
             glyph_rasterizer: &mut glyph_rasterizer,
             hovered_node: None,
             active_node: None,
+            focused_node: None,
+            scroll_offset_x: 0.0,
+            scroll_offset_y: 0.0,
+            scale_factor: 1.0,
         };
         let mut state = CanvasState;
         canvas_el.paint(&mut state, Rect::new(0.0, 0.0, 100.0, 100.0), &mut cx);

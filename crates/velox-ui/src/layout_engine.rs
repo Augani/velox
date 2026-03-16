@@ -1,7 +1,7 @@
 use crate::length::Length;
 use crate::style::{self, AlignItems, Display, FlexDirection, FlexWrap, JustifyContent, Position};
-use taffy::prelude::*;
 use taffy::TaffyResult;
+use taffy::prelude::*;
 
 pub struct LayoutEngine {
     pub(crate) taffy: TaffyTree<()>,
@@ -39,6 +39,14 @@ impl LayoutEngine {
         self.taffy.set_style(node, ts)
     }
 
+    pub fn set_taffy_style(&mut self, node: NodeId, style: taffy::Style) -> TaffyResult<()> {
+        self.taffy.set_style(node, style)
+    }
+
+    pub fn set_children(&mut self, node: NodeId, children: &[NodeId]) -> TaffyResult<()> {
+        self.taffy.set_children(node, children)
+    }
+
     pub fn remove(&mut self, node: NodeId) -> TaffyResult<NodeId> {
         self.taffy.remove(node)
     }
@@ -49,6 +57,21 @@ impl LayoutEngine {
         available: Size<AvailableSpace>,
     ) -> TaffyResult<()> {
         self.taffy.compute_layout(root, available)
+    }
+
+    pub fn compute_layout_sized(
+        &mut self,
+        root: NodeId,
+        width: f32,
+        height: f32,
+    ) -> TaffyResult<()> {
+        self.compute_layout(
+            root,
+            Size {
+                width: AvailableSpace::Definite(width),
+                height: AvailableSpace::Definite(height),
+            },
+        )
     }
 
     pub fn layout(&self, node: NodeId) -> TaffyResult<&Layout> {

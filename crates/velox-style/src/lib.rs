@@ -1,6 +1,6 @@
 mod color;
-mod manager;
 mod macros;
+mod manager;
 mod palette;
 mod theme;
 mod tokens;
@@ -12,7 +12,10 @@ pub use theme::Theme;
 pub use tokens::{FontSize, Radius, RadiusScale, SpaceScale, Spacing, TypographyTokens};
 
 mod generated {
-    use crate::{FontSize, Palette, Radius, RadiusScale, SpaceScale, Spacing, Theme, ThemeColor, TypographyTokens};
+    use crate::{
+        FontSize, Palette, Radius, RadiusScale, SpaceScale, Spacing, Theme, ThemeColor,
+        TypographyTokens,
+    };
 
     include!(concat!(env!("OUT_DIR"), "/generated_theme.rs"));
 }

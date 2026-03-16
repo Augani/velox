@@ -2,6 +2,7 @@ mod glyph_atlas;
 mod glyph_renderer;
 mod gpu;
 mod image_renderer;
+mod paint_utils;
 mod rect_renderer;
 mod renderer;
 pub mod software;

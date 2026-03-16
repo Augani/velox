@@ -9,8 +9,8 @@ mod selection;
 mod undo;
 
 pub use attrs::{FontFamily, FontStyle, TextAttrs};
-pub use bidi::{is_rtl_run, paragraph_direction, ParagraphDirection};
-pub use buffer::TextBuffer;
+pub use bidi::{ParagraphDirection, is_rtl_run, paragraph_direction};
+pub use buffer::{TextBuffer, TextRunLayout};
 pub use composition::CompositionState;
 pub use editable::{CursorDirection, EditableText, TextRect};
 pub use font_system::FontSystem;

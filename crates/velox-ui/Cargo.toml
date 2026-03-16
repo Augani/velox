@@ -11,3 +11,6 @@ velox-text = { workspace = true }
 velox-list = { workspace = true }
 taffy = { workspace = true }
 bumpalo = "3"
+
+[dev-dependencies]
+slotmap = { workspace = true }

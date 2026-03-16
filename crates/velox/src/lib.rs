@@ -19,9 +19,10 @@ pub use velox_devtools::{ResourceChange, ResourceGraph, ResourceNode};
 pub use velox_platform::accessibility_bridge::AccessibilityBridge;
 pub use velox_render::{RenderBackend, SoftwareRenderer};
 pub use velox_scene::{
-    BlendMode, DragEvent, DragPayload, DragPhase, DragState, ImeEvent, ModalConfig,
+    AccessibilityActionSupport, BlendMode, DragEvent, DragPayload, DragPhase, DragState, ImeEvent,
+    ModalConfig,
 };
-pub use velox_text::{paragraph_direction, CompositionState, ParagraphDirection};
+pub use velox_text::{CompositionState, ParagraphDirection, paragraph_direction};
 
 pub mod prelude {
     pub use velox_animation::{AnimationManager, Easing, Spring, Tween};
@@ -32,16 +33,16 @@ pub mod prelude {
     pub use velox_render::{GpuContext, Renderer};
     pub use velox_runtime::{PowerClass, PowerPolicy};
     pub use velox_scene::{
-        EventContext, EventHandler, KeyEvent, MouseEvent, NodeId, NodeTree, Point, Rect, Scene,
-        Size,
+        AccessibilityActionSupport, EventContext, EventHandler, KeyEvent, MouseEvent, NodeId,
+        NodeTree, Point, Rect, Scene, Size,
     };
     pub use velox_storage::{CacheStore, SettingsStore};
     pub use velox_style::{Palette, Theme, ThemeColor, ThemeManager};
     pub use velox_text::{EditableText, FontSystem, TextBuffer, TextSelection};
     pub use velox_ui::{
-        auto, canvas, div, fr, img, input, list, modal, overlay, pct, px, svg, text, Component,
-        Element, InteractiveElement, IntoElement, Length, ParentElement, RenderArena, Style,
-        Styled,
+        AccessibleElement, Component, Element, InputHandle, InteractiveElement, IntoElement,
+        Length, ParentElement, Render, RenderArena, Style, Styled, UiRoot, auto, canvas, div, fr,
+        img, impl_component, input, list, modal, overlay, pct, px, svg, text,
     };
     pub use velox_window::WindowConfig;
 }

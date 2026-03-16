@@ -73,7 +73,11 @@ impl Painter for ThemeDemoPainter {
             chip_h,
         );
         commands.fill_rect(left_chip, to_scene_color(palette.surface_alt));
-        commands.stroke_rect(left_chip, to_scene_color(palette.accent.with_alpha(90)), 1.0);
+        commands.stroke_rect(
+            left_chip,
+            to_scene_color(palette.accent.with_alpha(90)),
+            1.0,
+        );
 
         let right_chip = Rect::new(
             card.x + card.width - chip_w - chip_pad,
@@ -153,13 +157,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
             let shared = Rc::new(RefCell::new(ThemeDemoState::new(setup_manager.clone())));
 
-            scene
-                .tree_mut()
-                .set_painter(root, ThemeDemoPainter { state: shared.clone() });
+            scene.tree_mut().set_painter(
+                root,
+                ThemeDemoPainter {
+                    state: shared.clone(),
+                },
+            );
             scene
                 .tree_mut()
                 .set_event_handler(root, ThemeDemoHandler { state: shared });
-            scene.focus_mut().request_focus(root);
+            scene.request_focus(root);
         })
         .run()
 }

@@ -1,6 +1,8 @@
 use slotmap::SlotMap;
 
-use crate::accessibility::{AccessibilityNode, AccessibilityTreeNode, AccessibilityTreeSnapshot};
+use crate::accessibility::{
+    AccessibilityNode, AccessibilityTextRun, AccessibilityTreeNode, AccessibilityTreeSnapshot,
+};
 use crate::event::KeyEvent;
 use crate::event_handler::{EventContext, EventHandler};
 use crate::geometry::{Point, Rect};
@@ -16,6 +18,7 @@ pub(crate) struct NodeData {
     pub(crate) visible: bool,
     pub(crate) layout_dirty: bool,
     pub(crate) paint_dirty: bool,
+    pub(crate) subtree_dirty: bool,
     pub(crate) hit_test_transparent: bool,
     pub(crate) painter: Option<Box<dyn Painter>>,
     pub(crate) layout: Option<Box<dyn Layout>>,
@@ -24,6 +27,7 @@ pub(crate) struct NodeData {
     pub(crate) drop_target: Option<Box<dyn crate::drag::DropTarget>>,
     pub(crate) on_visible: Option<Box<dyn Fn(NodeId)>>,
     pub(crate) on_hidden: Option<Box<dyn Fn(NodeId)>>,
+    pub(crate) paint_epoch: u64,
 }
 
 impl NodeData {
@@ -35,6 +39,7 @@ impl NodeData {
             visible: true,
             layout_dirty: true,
             paint_dirty: true,
+            subtree_dirty: true,
             hit_test_transparent: false,
             painter: None,
             layout: None,
@@ -43,6 +48,7 @@ impl NodeData {
             drop_target: None,
             on_visible: None,
             on_hidden: None,
+            paint_epoch: 0,
         }
     }
 }
@@ -59,6 +65,7 @@ pub struct NodeTree {
     nodes: SlotMap<NodeId, NodeData>,
     root: Option<NodeId>,
     invalidation_regions: Vec<Rect>,
+    paint_epoch: u64,
 }
 
 impl NodeTree {
@@ -188,8 +195,10 @@ impl NodeTree {
         let previous = node.rect;
         node.rect = rect;
         node.paint_dirty = true;
+        node.subtree_dirty = true;
         self.record_invalidation(previous);
         self.record_invalidation(rect);
+        self.mark_ancestors_subtree_dirty(id);
     }
 
     pub fn rect(&self, id: NodeId) -> Option<Rect> {
@@ -202,11 +211,13 @@ impl NodeTree {
                 let was = node.visible;
                 node.visible = visible;
                 node.paint_dirty = true;
+                node.subtree_dirty = true;
                 (node.rect, was)
             }
             _ => return,
         };
         self.record_invalidation(rect);
+        self.mark_ancestors_subtree_dirty(id);
 
         if !was_visible && visible {
             let cb = self.nodes.get_mut(id).and_then(|n| n.on_visible.take());
@@ -290,6 +301,38 @@ impl NodeTree {
         self.nodes.get(id).and_then(|n| n.accessibility.as_ref())
     }
 
+    pub fn set_accessibility_value(&mut self, id: NodeId, value: Option<String>) -> bool {
+        match self
+            .nodes
+            .get_mut(id)
+            .and_then(|node| node.accessibility.as_mut())
+        {
+            Some(accessibility) if accessibility.value != value => {
+                accessibility.value = value;
+                true
+            }
+            _ => false,
+        }
+    }
+
+    pub fn set_accessibility_text_selection(
+        &mut self,
+        id: NodeId,
+        selection: Option<crate::AccessibilityTextSelection>,
+    ) -> bool {
+        match self
+            .nodes
+            .get_mut(id)
+            .and_then(|node| node.accessibility.as_mut())
+        {
+            Some(accessibility) if accessibility.text_selection != selection => {
+                accessibility.text_selection = selection;
+                true
+            }
+            _ => false,
+        }
+    }
+
     pub fn invalidation_regions(&self) -> &[Rect] {
         &self.invalidation_regions
     }
@@ -331,6 +374,9 @@ impl NodeTree {
                 label: a11y.label.clone(),
                 value: a11y.value.clone(),
                 disabled: a11y.disabled,
+                supported_actions: a11y.supported_actions.clone(),
+                text_selection: a11y.text_selection,
+                text_runs: offset_text_runs(&a11y.text_runs, node.rect),
                 rect: node.rect,
                 focused: focused == Some(id),
                 children,
@@ -364,11 +410,26 @@ impl NodeTree {
         let rect = match self.nodes.get_mut(id) {
             Some(node) if !node.paint_dirty => {
                 node.paint_dirty = true;
+                node.subtree_dirty = true;
                 node.rect
             }
             _ => return,
         };
         self.record_invalidation(rect);
+        self.mark_ancestors_subtree_dirty(id);
+    }
+
+    fn mark_ancestors_subtree_dirty(&mut self, id: NodeId) {
+        let mut current = self.nodes.get(id).and_then(|n| n.parent);
+        while let Some(parent_id) = current {
+            match self.nodes.get_mut(parent_id) {
+                Some(node) if !node.subtree_dirty => {
+                    node.subtree_dirty = true;
+                    current = node.parent;
+                }
+                _ => break,
+            }
+        }
     }
 
     pub fn clear_dirty(&mut self, id: NodeId) {
@@ -383,19 +444,35 @@ impl NodeTree {
             Some(node) => {
                 node.painter = Some(Box::new(painter));
                 node.paint_dirty = true;
+                node.subtree_dirty = true;
                 node.rect
             }
             None => return,
         };
         self.record_invalidation(rect);
+        self.mark_ancestors_subtree_dirty(id);
+    }
+
+    pub fn invalidate_all_paint(&mut self) {
+        self.paint_epoch = self.paint_epoch.wrapping_add(1);
+        for (_id, node) in self.nodes.iter_mut() {
+            node.paint_dirty = true;
+            node.subtree_dirty = true;
+        }
     }
 
     pub fn run_paint(&mut self, commands: &mut CommandList) {
         let Some(root) = self.root else { return };
-        self.paint_node(root, commands);
+        self.paint_epoch = self.paint_epoch.wrapping_add(1);
+        self.paint_node(root, commands, true);
     }
 
-    fn paint_node(&mut self, id: NodeId, commands: &mut CommandList) {
+    pub fn run_paint_uncached(&mut self, commands: &mut CommandList) {
+        let Some(root) = self.root else { return };
+        self.paint_node(root, commands, false);
+    }
+
+    fn paint_node(&mut self, id: NodeId, commands: &mut CommandList, use_cache: bool) {
         let Some(data) = self.nodes.get(id) else {
             return;
         };
@@ -403,8 +480,17 @@ impl NodeTree {
             return;
         }
 
+        let current_epoch = self.paint_epoch;
+        if use_cache
+            && !data.paint_dirty
+            && !data.subtree_dirty
+            && data.paint_epoch == current_epoch
+        {
+            return;
+        }
+
         let rect = data.rect;
-        let children = data.children.clone();
+        let children: Vec<NodeId> = data.children.to_vec();
 
         commands.push_clip(rect);
 
@@ -417,13 +503,15 @@ impl NodeTree {
         }
 
         for child in children {
-            self.paint_node(child, commands);
+            self.paint_node(child, commands, use_cache);
         }
 
         commands.pop_clip();
 
         if let Some(data) = self.nodes.get_mut(id) {
+            data.paint_epoch = current_epoch;
             data.paint_dirty = false;
+            data.subtree_dirty = false;
         }
     }
 
@@ -484,6 +572,15 @@ impl NodeTree {
         }
     }
 
+    pub fn dispatch_focus_change(&mut self, lost: Option<NodeId>, gained: Option<NodeId>) {
+        if let Some(node_id) = lost {
+            self.dispatch_focus_event(node_id, false);
+        }
+        if let Some(node_id) = gained {
+            self.dispatch_focus_event(node_id, true);
+        }
+    }
+
     pub fn dispatch_key_event(&mut self, id: NodeId, event: &KeyEvent) -> bool {
         self.dispatch_key_event_with_context(id, event, None)
             .consumed
@@ -504,16 +601,7 @@ impl NodeTree {
             let mut ctx = EventContext::new(rect);
             ctx.set_clipboard_content(clipboard_read);
             let consumed = h.handle_key(event, &mut ctx);
-            let redraw_requested = ctx.redraw_requested();
-            let clipboard_write = ctx.take_clipboard_write();
-            if let Some(data) = self.nodes.get_mut(id) {
-                data.event_handler = Some(h);
-            }
-            EventDispatchResult {
-                consumed,
-                redraw_requested,
-                clipboard_write,
-            }
+            self.finish_event_dispatch(id, h, ctx, consumed)
         } else {
             EventDispatchResult::default()
         }
@@ -536,16 +624,7 @@ impl NodeTree {
         if let Some(mut h) = handler {
             let mut ctx = EventContext::new(rect);
             let consumed = h.handle_mouse(event, &mut ctx);
-            let redraw_requested = ctx.redraw_requested();
-            let clipboard_write = ctx.take_clipboard_write();
-            if let Some(data) = self.nodes.get_mut(id) {
-                data.event_handler = Some(h);
-            }
-            EventDispatchResult {
-                consumed,
-                redraw_requested,
-                clipboard_write,
-            }
+            self.finish_event_dispatch(id, h, ctx, consumed)
         } else {
             EventDispatchResult::default()
         }
@@ -568,16 +647,7 @@ impl NodeTree {
         if let Some(mut h) = handler {
             let mut ctx = EventContext::new(rect);
             let consumed = h.handle_scroll(event, &mut ctx);
-            let redraw_requested = ctx.redraw_requested();
-            let clipboard_write = ctx.take_clipboard_write();
-            if let Some(data) = self.nodes.get_mut(id) {
-                data.event_handler = Some(h);
-            }
-            EventDispatchResult {
-                consumed,
-                redraw_requested,
-                clipboard_write,
-            }
+            self.finish_event_dispatch(id, h, ctx, consumed)
         } else {
             EventDispatchResult::default()
         }
@@ -600,16 +670,35 @@ impl NodeTree {
         if let Some(mut h) = handler {
             let mut ctx = EventContext::new(rect);
             let consumed = h.handle_ime(event, &mut ctx);
-            let redraw_requested = ctx.redraw_requested();
-            let clipboard_write = ctx.take_clipboard_write();
-            if let Some(data) = self.nodes.get_mut(id) {
-                data.event_handler = Some(h);
-            }
-            EventDispatchResult {
-                consumed,
-                redraw_requested,
-                clipboard_write,
-            }
+            self.finish_event_dispatch(id, h, ctx, consumed)
+        } else {
+            EventDispatchResult::default()
+        }
+    }
+
+    pub fn dispatch_accessibility_action(
+        &mut self,
+        id: NodeId,
+        action: &crate::AccessibilityAction,
+    ) -> bool {
+        self.dispatch_accessibility_action_with_context(id, action)
+            .consumed
+    }
+
+    pub fn dispatch_accessibility_action_with_context(
+        &mut self,
+        id: NodeId,
+        action: &crate::AccessibilityAction,
+    ) -> EventDispatchResult {
+        let Some(data) = self.nodes.get(id) else {
+            return EventDispatchResult::default();
+        };
+        let rect = data.rect;
+        let handler = self.nodes.get_mut(id).and_then(|d| d.event_handler.take());
+        if let Some(mut h) = handler {
+            let mut ctx = EventContext::new(rect);
+            let consumed = h.handle_accessibility_action(action, &mut ctx);
+            self.finish_event_dispatch(id, h, ctx, consumed)
         } else {
             EventDispatchResult::default()
         }
@@ -661,6 +750,45 @@ impl NodeTree {
         }
     }
 
+    fn dispatch_focus_event(&mut self, id: NodeId, gained: bool) {
+        let handler = self.nodes.get_mut(id).and_then(|d| d.event_handler.take());
+        if let Some(mut handler) = handler {
+            handler.handle_focus(gained);
+            if let Some(data) = self.nodes.get_mut(id) {
+                data.event_handler = Some(handler);
+            }
+        }
+    }
+
+    fn finish_event_dispatch(
+        &mut self,
+        id: NodeId,
+        handler: Box<dyn EventHandler>,
+        mut ctx: EventContext,
+        consumed: bool,
+    ) -> EventDispatchResult {
+        let accessibility_value_changed = match ctx.take_accessibility_value() {
+            Some(value) => self.set_accessibility_value(id, value),
+            None => false,
+        };
+        let accessibility_selection_changed = match ctx.take_accessibility_text_selection() {
+            Some(selection) => self.set_accessibility_text_selection(id, selection),
+            None => false,
+        };
+        let redraw_requested = ctx.redraw_requested()
+            || accessibility_value_changed
+            || accessibility_selection_changed;
+        let clipboard_write = ctx.take_clipboard_write();
+        if let Some(data) = self.nodes.get_mut(id) {
+            data.event_handler = Some(handler);
+        }
+        EventDispatchResult {
+            consumed,
+            redraw_requested,
+            clipboard_write,
+        }
+    }
+
     fn hit_test_node(&self, id: NodeId, point: Point) -> Option<NodeId> {
         let data = self.nodes.get(id)?;
 
@@ -680,6 +808,21 @@ impl NodeTree {
 
         Some(id)
     }
+}
+
+fn offset_text_runs(runs: &[AccessibilityTextRun], node_rect: Rect) -> Vec<AccessibilityTextRun> {
+    runs.iter()
+        .map(|run| AccessibilityTextRun {
+            text: run.text.clone(),
+            byte_start: run.byte_start,
+            rect: Rect::new(
+                node_rect.x + run.rect.x,
+                node_rect.y + run.rect.y,
+                run.rect.width,
+                run.rect.height,
+            ),
+        })
+        .collect()
 }
 
 #[cfg(test)]
@@ -963,6 +1106,70 @@ mod tests {
         let result = tree.dispatch_mouse_event_with_context(root, &event);
         assert!(result.consumed);
         assert!(result.redraw_requested);
+    }
+
+    #[test]
+    fn accessibility_action_dispatch_updates_accessibility_value() {
+        use crate::event_handler::{EventContext, EventHandler};
+        use crate::AccessibilityAction;
+
+        struct AccessibilityHandler;
+        impl EventHandler for AccessibilityHandler {
+            fn handle_key(&mut self, _event: &KeyEvent, _ctx: &mut EventContext) -> bool {
+                false
+            }
+
+            fn handle_accessibility_action(
+                &mut self,
+                action: &AccessibilityAction,
+                ctx: &mut EventContext,
+            ) -> bool {
+                match action {
+                    AccessibilityAction::SetValue(value)
+                    | AccessibilityAction::ReplaceSelectedText(value) => {
+                        ctx.set_accessibility_value(Some(value.clone()));
+                    }
+                    AccessibilityAction::SetTextSelection(selection) => {
+                        ctx.set_accessibility_text_selection(Some(*selection));
+                    }
+                }
+                true
+            }
+        }
+
+        let mut tree = NodeTree::new();
+        let root = tree.insert(None);
+        tree.set_rect(root, Rect::new(0.0, 0.0, 200.0, 40.0));
+        tree.set_accessibility(root, AccessibilityNode::new(AccessibilityRole::TextInput));
+        tree.set_event_handler(root, AccessibilityHandler);
+
+        let result = tree.dispatch_accessibility_action_with_context(
+            root,
+            &AccessibilityAction::SetValue(String::from("Hello")),
+        );
+        assert!(result.consumed);
+        assert!(result.redraw_requested);
+        assert_eq!(
+            tree.accessibility(root)
+                .and_then(|node| node.value.as_deref()),
+            Some("Hello")
+        );
+
+        let selection = crate::AccessibilityTextSelection {
+            anchor: 1,
+            focus: 4,
+        };
+        let result = tree.dispatch_accessibility_action_with_context(
+            root,
+            &AccessibilityAction::SetTextSelection(selection),
+        );
+        assert!(result.consumed);
+        assert!(result.redraw_requested);
+        assert_eq!(
+            tree.accessibility(root)
+                .and_then(|node| node.text_selection),
+            Some(selection)
+        );
     }
 
     #[test]

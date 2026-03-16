@@ -7,6 +7,10 @@ use crate::gpu::GpuContext;
 struct RectVertex {
     position: [f32; 2],
     color: [f32; 4],
+    local_pos: [f32; 2],
+    half_size: [f32; 2],
+    corner_radius: f32,
+    _pad: f32,
 }
 
 #[repr(C)]
@@ -22,6 +26,7 @@ pub struct RectData {
     pub width: f32,
     pub height: f32,
     pub color: [f32; 4],
+    pub corner_radius: f32,
     pub clip: Option<[u32; 4]>,
 }
 
@@ -117,6 +122,21 @@ impl RectRenderer {
                                 shader_location: 1,
                                 format: wgpu::VertexFormat::Float32x4,
                             },
+                            wgpu::VertexAttribute {
+                                offset: 24,
+                                shader_location: 2,
+                                format: wgpu::VertexFormat::Float32x2,
+                            },
+                            wgpu::VertexAttribute {
+                                offset: 32,
+                                shader_location: 3,
+                                format: wgpu::VertexFormat::Float32x2,
+                            },
+                            wgpu::VertexAttribute {
+                                offset: 40,
+                                shader_location: 4,
+                                format: wgpu::VertexFormat::Float32,
+                            },
                         ],
                     }],
                 },
@@ -178,30 +198,58 @@ impl RectRenderer {
             let x1 = r.x + r.width;
             let y1 = r.y + r.height;
             let c = r.color;
+            let hw = r.width / 2.0;
+            let hh = r.height / 2.0;
+            let hs = [hw, hh];
+            let cr = r.corner_radius;
 
             self.vertices.push(RectVertex {
                 position: [x0, y0],
                 color: c,
+                local_pos: [-hw, -hh],
+                half_size: hs,
+                corner_radius: cr,
+                _pad: 0.0,
             });
             self.vertices.push(RectVertex {
                 position: [x1, y0],
                 color: c,
+                local_pos: [hw, -hh],
+                half_size: hs,
+                corner_radius: cr,
+                _pad: 0.0,
             });
             self.vertices.push(RectVertex {
                 position: [x0, y1],
                 color: c,
+                local_pos: [-hw, hh],
+                half_size: hs,
+                corner_radius: cr,
+                _pad: 0.0,
             });
             self.vertices.push(RectVertex {
                 position: [x0, y1],
                 color: c,
+                local_pos: [-hw, hh],
+                half_size: hs,
+                corner_radius: cr,
+                _pad: 0.0,
             });
             self.vertices.push(RectVertex {
                 position: [x1, y0],
                 color: c,
+                local_pos: [hw, -hh],
+                half_size: hs,
+                corner_radius: cr,
+                _pad: 0.0,
             });
             self.vertices.push(RectVertex {
                 position: [x1, y1],
                 color: c,
+                local_pos: [hw, hh],
+                half_size: hs,
+                corner_radius: cr,
+                _pad: 0.0,
             });
 
             self.push_batch(start, 6, r.clip);
@@ -240,9 +288,10 @@ impl RectRenderer {
             render_pass.set_bind_group(0, &self.uniform_bind_group, &[]);
             render_pass.set_vertex_buffer(0, vb.slice(..));
             for batch in &self.draw_batches {
-                let [x, y, w, h] = batch
-                    .clip
-                    .unwrap_or([0, 0, self.surface_width, self.surface_height]);
+                let [x, y, w, h] =
+                    batch
+                        .clip
+                        .unwrap_or([0, 0, self.surface_width, self.surface_height]);
                 if w == 0 || h == 0 {
                     continue;
                 }

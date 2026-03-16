@@ -3,7 +3,7 @@ use std::cell::{Cell, RefCell};
 use velox_scene::{Layout, NodeId, NodeTree, Rect};
 
 use crate::callbacks::ListCallbacks;
-use crate::range::{compute_expanded, ExpandedRanges, ViewportRange};
+use crate::range::{ExpandedRanges, ViewportRange, compute_expanded};
 use crate::scroll::ScrollAnchor;
 
 struct CachedState {

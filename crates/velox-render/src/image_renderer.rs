@@ -304,9 +304,10 @@ impl ImageRenderer {
         render_pass.set_bind_group(0, bg, &[]);
         render_pass.set_vertex_buffer(0, vb.slice(..));
         for batch in &self.draw_batches {
-            let [x, y, w, h] = batch
-                .clip
-                .unwrap_or([0, 0, self.surface_width, self.surface_height]);
+            let [x, y, w, h] =
+                batch
+                    .clip
+                    .unwrap_or([0, 0, self.surface_width, self.surface_height]);
             if w == 0 || h == 0 {
                 continue;
             }

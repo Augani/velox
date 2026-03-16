@@ -280,8 +280,8 @@ impl Painter for SimPainter {
         }
 
         let zoom = state.zoom;
-        let cx = W / 2.0;
-        let cy = H / 2.0;
+        let cx = rect.width / 2.0;
+        let cy = rect.height / 2.0;
 
         for particle in &state.particles {
             let px = (particle.x - cx) * zoom + cx + rect.x;
@@ -301,22 +301,16 @@ impl Painter for SimPainter {
             let glow = (speed * 15.0).min(60.0) as u8;
 
             if glow > 10 {
-                let glow_size = radius * 3.0;
-                commands.fill_rect(
-                    Rect::new(
-                        px - glow_size / 2.0,
-                        py - glow_size / 2.0,
-                        glow_size,
-                        glow_size,
-                    ),
+                let glow_radius = radius * 1.5;
+                commands.fill_circle(
+                    px,
+                    py,
+                    glow_radius,
                     Color::rgba(color.r, color.g, color.b, glow),
                 );
             }
 
-            commands.fill_rect(
-                Rect::new(px - radius, py - radius, radius * 2.0, radius * 2.0),
-                color,
-            );
+            commands.fill_circle(px, py, radius, color);
         }
 
         let matrix = &state.interaction_matrix;
@@ -444,7 +438,8 @@ impl EventHandler for SimHandler {
         }
         match event.key {
             Key::Space => {
-                self.state.borrow_mut().paused = !self.state.borrow().paused;
+                let mut s = self.state.borrow_mut();
+                s.paused = !s.paused;
                 ctx.request_redraw();
                 true
             }
@@ -483,9 +478,19 @@ impl EventHandler for SimHandler {
     fn handle_mouse(&mut self, event: &MouseEvent, ctx: &mut EventContext) -> bool {
         if event.button == MouseButton::Left && event.state == ButtonState::Pressed {
             let mut s = self.state.borrow_mut();
-            let mx = event.position.x;
-            let my = event.position.y;
-            for _ in 0..30 {
+            let rect = ctx.rect();
+            let zoom = s.zoom;
+            let cx = rect.width / 2.0;
+            let cy = rect.height / 2.0;
+            let mx = (event.position.x - cx) / zoom + cx;
+            let my = (event.position.y - cy) / zoom + cy;
+            let max_particles = 3000;
+            let spawn = if s.particles.len() >= max_particles {
+                0
+            } else {
+                10
+            };
+            for _ in 0..spawn {
                 let species = (simple_hash(s.rng_counter) as usize) % NUM_SPECIES;
                 s.rng_counter += 1;
                 let angle = hash_f32(s.rng_counter) * std::f32::consts::TAU;
@@ -526,6 +531,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     App::new()
         .name("Particle Life")
         .power_policy(PowerPolicy::Adaptive)
+        .continuous_redraw()
         .theme_manager(manager)
         .window(
             WindowConfig::new("main")
@@ -540,16 +546,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             scene.tree_mut().set_painter(
                 root,
                 SimPainter {
-                    state: painter_state,
+                    state: painter_state.clone(),
                 },
             );
             scene.tree_mut().set_event_handler(
                 root,
                 SimHandler {
-                    state: handler_state,
+                    state: handler_state.clone(),
                 },
             );
-            scene.focus_mut().request_focus(root);
+            scene.request_focus(root);
         })
         .run()
 }

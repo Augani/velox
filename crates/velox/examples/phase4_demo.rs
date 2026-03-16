@@ -4,6 +4,7 @@ use std::rc::Rc;
 
 use velox::prelude::*;
 use velox::scene::{
+    AccessibilityAction, AccessibilityNode, AccessibilityRole, AccessibilityTextSelection,
     ButtonState, Color, CommandList, EventContext, EventHandler, Key, KeyEvent, Modifiers,
     MouseButton, MouseEvent, PaddingLayout, Painter, PositionedGlyph,
 };
@@ -116,7 +117,10 @@ impl Painter for TextInputPainter {
             commands.draw_glyphs(glyphs, Color::rgb(230, 230, 240));
         }
 
-        if *focused && *cursor_visible && let Some(cr) = editable.cursor_rect() {
+        if *focused
+            && *cursor_visible
+            && let Some(cr) = editable.cursor_rect()
+        {
             commands.fill_rect(
                 Rect::new(rect.x + cr.x, rect.y + cr.y, cr.width, cr.height),
                 Color::rgb(200, 200, 220),
@@ -200,6 +204,12 @@ impl EventHandler for TextInputEventHandler {
                 }
             }
         }
+        let selection = editable.selection();
+        ctx.set_accessibility_value(Some(editable.text().to_owned()));
+        ctx.set_accessibility_text_selection(Some(AccessibilityTextSelection {
+            anchor: selection.anchor,
+            focus: selection.focus,
+        }));
         *cursor_visible = true;
         ctx.request_redraw();
         true
@@ -219,6 +229,11 @@ impl EventHandler for TextInputEventHandler {
                 ..
             } = &mut *state;
             editable.move_cursor_to(font_system, pos);
+            let selection = editable.selection();
+            ctx.set_accessibility_text_selection(Some(AccessibilityTextSelection {
+                anchor: selection.anchor,
+                focus: selection.focus,
+            }));
             *cursor_visible = true;
             ctx.request_redraw();
             return true;
@@ -230,6 +245,43 @@ impl EventHandler for TextInputEventHandler {
         let mut state = self.state.borrow_mut();
         state.focused = gained;
         state.cursor_visible = gained;
+    }
+
+    fn handle_accessibility_action(
+        &mut self,
+        action: &AccessibilityAction,
+        ctx: &mut EventContext,
+    ) -> bool {
+        let mut state = self.state.borrow_mut();
+        let TextInputState {
+            editable,
+            font_system,
+            cursor_visible,
+            ..
+        } = &mut *state;
+
+        match action {
+            AccessibilityAction::SetValue(value) => editable.set_text(font_system, value),
+            AccessibilityAction::ReplaceSelectedText(value) => {
+                editable.insert_text(font_system, value)
+            }
+            AccessibilityAction::SetTextSelection(selection) => {
+                editable.set_selection(velox::text::TextSelection {
+                    anchor: selection.anchor,
+                    focus: selection.focus,
+                });
+            }
+        }
+
+        let selection = editable.selection();
+        ctx.set_accessibility_value(Some(editable.text().to_owned()));
+        ctx.set_accessibility_text_selection(Some(AccessibilityTextSelection {
+            anchor: selection.anchor,
+            focus: selection.focus,
+        }));
+        *cursor_visible = true;
+        ctx.request_redraw();
+        true
     }
 }
 
@@ -275,8 +327,19 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     state: widget_state,
                 },
             );
+            scene.tree_mut().set_accessibility(
+                input,
+                AccessibilityNode::new(AccessibilityRole::TextInput)
+                    .label("Editor")
+                    .value("Type here...")
+                    .supports_text_input_actions()
+                    .text_selection(AccessibilityTextSelection {
+                        anchor: 0,
+                        focus: "Type here...".len(),
+                    }),
+            );
 
-            scene.focus_mut().request_focus(input);
+            scene.request_focus(input);
         })
         .run()
 }
